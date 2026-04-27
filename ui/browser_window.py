@@ -3,9 +3,9 @@ import tempfile
 from urllib.parse import urlparse
 
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
-from PyQt6.QtGui import QColor
-from PyQt6.QtNetwork import QNetworkCookie
-from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PyQt6.QtNetwork import QNetworkCookie, QNetworkReply
+from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -23,9 +23,61 @@ from core.sniffer import NetworkSniffer, SniffedVideo
 from core.task import DownloadTask
 from core.title_rules import TitleRuleManager
 from ui.cookie_manager_dialog import CookieManagerDialog
-from ui.sniff_panel import SniffPanel
-from ui.title_rule_dialog import TitleRuleDialog
+from ui.sniff_panel import (
+    SniffPanel,
+    _make_cookie_icon,
+    _make_rule_icon,
+    _make_panel_toggle_icon,
+    _make_close_icon,
+    get_video_display_name,
+)
 from app import BROWSER_STYLE_SHEET
+
+
+def _make_nav_back_icon() -> QIcon:
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = p.pen()
+    pen.setColor(QColor("#c4b5fd"))
+    pen.setWidthF(2.0)
+    p.setPen(pen)
+    p.drawLine(15, 6, 9, 12)
+    p.drawLine(9, 12, 15, 18)
+    p.end()
+    return QIcon(pixmap)
+
+
+def _make_nav_forward_icon() -> QIcon:
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = p.pen()
+    pen.setColor(QColor("#c4b5fd"))
+    pen.setWidthF(2.0)
+    p.setPen(pen)
+    p.drawLine(9, 6, 15, 12)
+    p.drawLine(15, 12, 9, 18)
+    p.end()
+    return QIcon(pixmap)
+
+
+def _make_nav_reload_icon() -> QIcon:
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = p.pen()
+    pen.setColor(QColor("#c4b5fd"))
+    pen.setWidthF(1.8)
+    p.setPen(pen)
+    p.drawArc(6, 6, 12, 12, 40 * 16, 280 * 16)
+    p.drawLine(15, 6, 18, 6)
+    p.drawLine(18, 6, 18, 9)
+    p.end()
+    return QIcon(pixmap)
 
 
 def _domain_from_url(url: str) -> str:
@@ -90,111 +142,134 @@ class BrowserWindow(QMainWindow):
 
         # --- Navigation bar ---
         nav_container = QWidget()
-        nav_container.setStyleSheet("background: #241f38;")
+        nav_container.setStyleSheet("background: #241f38; border-bottom: 1px solid rgba(255,255,255,0.06);")
         nav = QHBoxLayout(nav_container)
-        nav.setContentsMargins(10, 8, 10, 8)
-        nav.setSpacing(6)
+        nav.setContentsMargins(12, 8, 12, 8)
+        nav.setSpacing(8)
 
-        self._back_btn = QPushButton("◀")
-        self._back_btn.setFixedSize(32, 32)
+        # Back/Forward/Reload group
+        self._back_btn = QPushButton()
+        self._back_btn.setIcon(_make_nav_back_icon())
+        self._back_btn.setFixedSize(30, 30)
         self._back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._back_btn.clicked.connect(self._go_back)
+        self._back_btn.setProperty("class", "navBtn")
         nav.addWidget(self._back_btn)
 
-        self._fwd_btn = QPushButton("▶")
-        self._fwd_btn.setFixedSize(32, 32)
+        self._fwd_btn = QPushButton()
+        self._fwd_btn.setIcon(_make_nav_forward_icon())
+        self._fwd_btn.setFixedSize(30, 30)
         self._fwd_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._fwd_btn.clicked.connect(self._go_forward)
+        self._fwd_btn.setProperty("class", "navBtn")
         nav.addWidget(self._fwd_btn)
 
-        self._reload_btn = QPushButton("↻")
-        self._reload_btn.setFixedSize(32, 32)
+        self._reload_btn = QPushButton()
+        self._reload_btn.setIcon(_make_nav_reload_icon())
+        self._reload_btn.setFixedSize(30, 30)
         self._reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._reload_btn.clicked.connect(self._reload)
+        self._reload_btn.setProperty("class", "navBtn")
         nav.addWidget(self._reload_btn)
 
-        # Login status indicator
-        self._login_indicator = QLabel("○ 未登录")
-        self._login_indicator.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px; background: transparent; padding: 0 4px;")
-        nav.addWidget(self._login_indicator)
-
-        # Cookie manager button
-        self._cookie_btn = QPushButton("Cookie")
-        self._cookie_btn.setFixedSize(56, 26)
-        self._cookie_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._cookie_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.06);
-                color: #c4b5fd;
-                border: none;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0px;
-            }
-            QPushButton:hover { background: rgba(255,255,255,0.12); }
-        """)
-        self._cookie_btn.clicked.connect(self._show_cookie_manager)
-        nav.addWidget(self._cookie_btn)
-
-        # Title rule manager button
-        self._title_rule_btn = QPushButton("标题规则")
-        self._title_rule_btn.setFixedSize(64, 26)
-        self._title_rule_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._title_rule_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.06);
-                color: #c4b5fd;
-                border: none;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 0px;
-            }
-            QPushButton:hover { background: rgba(255,255,255,0.12); }
-        """)
-        self._title_rule_btn.clicked.connect(self._show_title_rules)
-        nav.addWidget(self._title_rule_btn)
-
-        # Sniff panel toggle button
-        self._sniff_toggle_btn = QPushButton("▮")
-        self._sniff_toggle_btn.setFixedSize(28, 26)
-        self._sniff_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._sniff_toggle_btn.setToolTip("隐藏嗅探面板")
-        self._sniff_toggle_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.06);
-                color: #c4b5fd;
-                border: none;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background: rgba(255,255,255,0.12); }
-        """)
-        self._sniff_toggle_btn.clicked.connect(self._toggle_sniff_panel)
-        nav.addWidget(self._sniff_toggle_btn)
-
-        # Apply navBtn class to all nav buttons for styling
-        for btn in (self._back_btn, self._fwd_btn, self._reload_btn):
-            btn.setProperty("class", "navBtn")
-
+        # URL bar (centered, expanding)
         self._url_bar = QLineEdit()
         self._url_bar.setObjectName("urlBar")
         self._url_bar.setPlaceholderText("输入网址...")
         self._url_bar.returnPressed.connect(self._navigate)
         nav.addWidget(self._url_bar, 1)
 
+        # Tools group
+        self._login_indicator = QLabel("○ 未登录")
+        self._login_indicator.setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px; margin-left: 4px;")
+        nav.addWidget(self._login_indicator)
+
+        self._cookie_btn = QPushButton()
+        self._cookie_btn.setIcon(_make_cookie_icon())
+        self._cookie_btn.setFixedSize(32, 28)
+        self._cookie_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cookie_btn.setToolTip("Cookie 管理")
+        self._cookie_btn.setProperty("class", "toolBtn")
+        self._cookie_btn.clicked.connect(self._show_cookie_manager)
+        nav.addWidget(self._cookie_btn)
+
+        self._title_rule_btn = QPushButton()
+        self._title_rule_btn.setIcon(_make_rule_icon())
+        self._title_rule_btn.setFixedSize(32, 28)
+        self._title_rule_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._title_rule_btn.setToolTip("标题提取规则")
+        self._title_rule_btn.setProperty("class", "toolBtn")
+        self._title_rule_btn.clicked.connect(self._show_title_rules)
+        nav.addWidget(self._title_rule_btn)
+
+        self._sniff_toggle_btn = QPushButton()
+        self._sniff_toggle_btn.setIcon(_make_panel_toggle_icon(True))
+        self._sniff_toggle_btn.setFixedSize(32, 28)
+        self._sniff_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._sniff_toggle_btn.setToolTip("隐藏嗅探面板")
+        self._sniff_toggle_btn.setProperty("class", "toolBtn")
+        self._sniff_toggle_btn.clicked.connect(self._toggle_sniff_panel)
+        nav.addWidget(self._sniff_toggle_btn)
+
         left_layout.addWidget(nav_container)
 
         # --- Web view ---
-        # Off-the-record profile: cookies live in memory only.
-        # Avoids "same data path" warnings if the window is reopened.
         self._profile = QWebEngineProfile(self)
+        # Use a stable Windows User-Agent which often has better compatibility with Douyin detection
         self._profile.setHttpUserAgent(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
         )
+
+        # Inject a compatibility script to "de-bot" the browser and spoof features
+        compatibility_script = QWebEngineScript()
+        compatibility_script.setSourceCode("""
+            (function() {
+                // 1. Hide webdriver
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                
+                // 2. Spoof plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [
+                        { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer' },
+                        { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer' },
+                        { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer' },
+                        { name: 'PDF Viewer', filename: 'internal-pdf-viewer' },
+                        { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer' }
+                    ]
+                });
+
+                // 3. Spoof languages and platform
+                Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+                Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+
+                // 4. Fake chrome object (often checked by Douyin)
+                window.chrome = {
+                    runtime: {},
+                    loadTimes: function() {},
+                    csi: function() {},
+                    app: {}
+                };
+            })();
+        """)
+        compatibility_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        compatibility_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        compatibility_script.setRunsOnSubFrames(True)
+        self._profile.scripts().insert(compatibility_script)
+
+        # Enable modern web features for better compatibility with video players
+        settings = self._profile.settings()
+        settings.setAttribute(settings.WebAttribute.LocalStorageEnabled, True)
+        settings.setAttribute(settings.WebAttribute.FullScreenSupportEnabled, True)
+        settings.setAttribute(settings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        settings.setAttribute(settings.WebAttribute.Accelerated2dCanvasEnabled, True)
+        settings.setAttribute(settings.WebAttribute.AllowRunningInsecureContent, True)
+        settings.setAttribute(settings.WebAttribute.JavascriptCanAccessClipboard, True)
+        settings.setAttribute(settings.WebAttribute.WebGLEnabled, True)
+        # Added features
+        settings.setAttribute(settings.WebAttribute.PluginsEnabled, True)
+        settings.setAttribute(settings.WebAttribute.DnsPrefetchEnabled, True)
+        settings.setAttribute(settings.WebAttribute.JavascriptCanOpenWindows, True)
+        settings.setAttribute(settings.WebAttribute.PdfViewerEnabled, False) # Conserve resources
 
         self._sniffer = NetworkSniffer(self)
         self._profile.setUrlRequestInterceptor(self._sniffer)
@@ -231,7 +306,8 @@ class BrowserWindow(QMainWindow):
     def _on_url_changed(self, url: QUrl):
         self._url_bar.setText(url.toString())
         # Clear sniffer's dedup so new page requests aren't filtered out (SPA fix)
-        self._sniffer.clear()
+        if self._sniffer is not None:
+            self._sniffer.clear()
 
     def _on_load_started(self):
         self._statusbar.showMessage("加载中…")
@@ -267,6 +343,89 @@ class BrowserWindow(QMainWindow):
         if self._current_page_title:
             video.page_title = self._current_page_title
         self._sniff_panel.add_video(video)
+        
+        # Priority 1: Real-time Frame Extraction via FFmpeg (Accurate & from URL)
+        # This solves "getting thumbnail from mp4 response data"
+        self._extract_frame_via_ffmpeg(video.url)
+
+    def _extract_frame_via_ffmpeg(self, video_url: str):
+        """Use ffmpeg to grab a single frame from the remote URL without downloading the whole file."""
+        from PyQt6.QtCore import QProcess
+        import shutil
+        
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            # Fallback to metadata probe if ffmpeg is missing
+            self._probe_thumbnail_via_ytdlp(video_url)
+            return
+
+        process = QProcess(self)
+        # -ss 00:00:01: Seek to 1 second
+        # -i: Input URL
+        # -vframes 1: Grab 1 frame
+        # -f image2 pipe:1: Output as image data to stdout pipe
+        args = [
+            "-ss", "00:00:01",
+            "-i", video_url,
+            "-vframes", "1",
+            "-q:v", "2",
+            "-f", "image2",
+            "pipe:1"
+        ]
+        process.start(ffmpeg_path, args)
+        
+        def on_finished():
+            img_data = process.readAllStandardOutput().data()
+            if img_data:
+                pixmap = QPixmap()
+                if pixmap.loadFromData(img_data):
+                    self._sniff_panel.update_thumbnail(video_url, pixmap)
+            process.deleteLater()
+            
+        process.finished.connect(on_finished)
+
+    def _probe_thumbnail_via_ytdlp(self, video_url: str):
+        """Use yt-dlp to extract the real thumbnail URL for a given video URL."""
+        from PyQt6.QtCore import QProcess
+        from core.downloader import _find_ytdlp
+        
+        ytdlp = _find_ytdlp()
+        process = QProcess(self)
+        # --get-thumbnail is very fast as it only fetches metadata
+        process.start(ytdlp, ["--no-warnings", "--get-thumbnail", video_url])
+        
+        def on_finished():
+            out = process.readAllStandardOutput().data().decode().strip()
+            if out.startswith("http"):
+                self._load_remote_thumbnail(video_url, out)
+            process.deleteLater()
+            
+        process.finished.connect(on_finished)
+
+    def _load_remote_thumbnail(self, video_url: str, thumb_url: str):
+        """Fetch thumbnail image from URL with proper headers."""
+        if not hasattr(self, "_thumb_nam"):
+            from PyQt6.QtNetwork import QNetworkAccessManager
+            self._thumb_nam = QNetworkAccessManager(self)
+        
+        from PyQt6.QtNetwork import QNetworkRequest
+        from PyQt6.QtCore import QUrl
+        
+        req = QNetworkRequest(QUrl(thumb_url))
+        req.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute, True)
+        # Crucial for bypassing hotlink protection
+        req.setRawHeader(b"Referer", self._view.url().toString().encode())
+        req.setRawHeader(b"User-Agent", self._profile.httpUserAgent().encode())
+        
+        reply = self._thumb_nam.get(req)
+        reply.finished.connect(lambda: self._on_thumb_downloaded(video_url, reply))
+
+    def _on_thumb_downloaded(self, video_url: str, reply: QNetworkReply):
+        if reply.error() == QNetworkReply.NetworkError.NoError:
+            pixmap = QPixmap()
+            if pixmap.loadFromData(reply.readAll()):
+                self._sniff_panel.update_thumbnail(video_url, pixmap)
+        reply.deleteLater()
 
     def _navigate(self):
         text = self._url_bar.text().strip()
@@ -340,18 +499,16 @@ class BrowserWindow(QMainWindow):
 
     def _on_download_video(self, video: SniffedVideo):
         task = self._build_task_for_video(video)
-        if not task.title and video.page_title:
-            task.title = self._ensure_unique_title(video.page_title, video)
+        # Use the same display name as in the SniffPanel list
+        display_name = get_video_display_name(video.url)
+        task.title = display_name
         self.download_requested.emit(task)
 
     def _on_download_all(self):
-        title = ""
-        if self._current_page_title:
-            title = self._current_page_title
         for video in self._sniff_panel.videos:
             task = self._build_task_for_video(video)
-            if not task.title and (video.page_title or title):
-                task.title = self._ensure_unique_title(video.page_title or title, video)
+            display_name = get_video_display_name(video.url)
+            task.title = display_name
             self.download_requested.emit(task)
 
     @staticmethod
@@ -391,12 +548,28 @@ class BrowserWindow(QMainWindow):
 
     def shutdown(self):
         """Clean up web engine resources before app quit (avoids IO thread crash)."""
+        # Disconnect signals first to avoid calls during destruction
+        try:
+            self._view.urlChanged.disconnect(self._on_url_changed)
+        except (TypeError, RuntimeError):
+            pass
+
         self._cookie_manager.save()
         if self._sniffer is not None:
-            self._sniffer.clear()
+            # Safely clear and remove interceptor
+            try:
+                self._sniffer.clear()
+            except Exception:
+                pass
+            self._profile.setUrlRequestInterceptor(None)
             self._sniffer.deleteLater()
             self._sniffer = None
+            
+        self._view.stop()
         self._view.load(QUrl("about:blank"))
+        # Deleting the view/page explicitly helps clean up the profile properly
+        self._page.deleteLater()
+        self._view.deleteLater()
 
     def _update_login_indicator(self):
         if self._cookie_manager.has_any():
@@ -421,7 +594,7 @@ class BrowserWindow(QMainWindow):
         """Show or hide the sniff panel and update toggle button appearance."""
         hidden = self._sniff_panel.isHidden()
         self._sniff_panel.setVisible(hidden)
-        self._sniff_toggle_btn.setText("▮" if hidden else "☐")
+        self._sniff_toggle_btn.setIcon(_make_panel_toggle_icon(hidden))
         self._sniff_toggle_btn.setToolTip(
             "隐藏嗅探面板" if hidden else "显示嗅探面板"
         )

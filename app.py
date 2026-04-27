@@ -19,7 +19,7 @@ MAIN_STYLE_SHEET = """
     }
     QWidget {
         color: #e8e8ed;
-        font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+        font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
         font-size: 13px;
     }
 
@@ -192,55 +192,78 @@ MAIN_STYLE_SHEET = """
 # QWidget itself, otherwise the embedded QWebEngineView fails to composite on
 # macOS. Only style the inner controls (nav buttons, URL bar, status bar).
 BROWSER_STYLE_SHEET = """
-    QPushButton {
-        background-color: #8b5cf6;
-        color: #ffffff;
-        border: none;
-        border-radius: 10px;
-        padding: 8px 20px;
-        font-weight: 600;
-        font-size: 13px;
-    }
-    QPushButton:hover { background-color: #7c3aed; }
-    QPushButton:pressed { background-color: #6d28d9; }
-    QPushButton:disabled {
-        background-color: rgba(255,255,255,0.08);
-        color: rgba(255,255,255,0.25);
-    }
-    QPushButton.secondary {
-        background-color: rgba(255,255,255,0.08);
-        color: #e8e8ed;
-    }
-    QPushButton.secondary:hover { background-color: rgba(255,255,255,0.14); }
-
-    QLineEdit#urlBar {
-        background-color: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 8px;
-        padding: 6px 12px;
-        color: #e8e8ed;
-        font-size: 13px;
-    }
-    QLineEdit#urlBar:focus { border-color: rgba(139,92,246,0.5); }
-
+    /* === Navigation Buttons === */
     QPushButton.navBtn {
-        background-color: rgba(255,255,255,0.06);
+        background-color: rgba(255,255,255,0.05);
         color: #c4b5fd;
+        border: 1px solid rgba(255,255,255,0.03);
+        border-radius: 6px;
+        font-size: 15px;
+        font-weight: bold;
+    }
+    QPushButton.navBtn:hover {
+        background-color: rgba(139,92,246,0.15);
+        color: #ffffff;
+        border-color: rgba(139,92,246,0.1);
+    }
+    QPushButton.navBtn:pressed {
+        background-color: rgba(139,92,246,0.25);
+    }
+
+    /* === Tool Buttons (Cookie, Rules etc) === */
+    QPushButton.toolBtn {
+        background: rgba(255,255,255,0.06);
+        color: #a78bfa;
         border: none;
         border-radius: 6px;
-        font-size: 16px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 0 8px;
     }
-    QPushButton.navBtn:hover { background-color: rgba(139,92,246,0.25); }
+    QPushButton.toolBtn:hover {
+        background: rgba(255,255,255,0.12);
+        color: #ffffff;
+    }
 
+    /* === URL Bar === */
+    QLineEdit#urlBar {
+        background-color: rgba(0,0,0,0.2);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px;
+        padding: 6px 14px;
+        color: #e2e8f0;
+        font-size: 13px;
+        selection-background-color: #8b5cf6;
+    }
+    QLineEdit#urlBar:focus {
+        border-color: rgba(139,92,246,0.5);
+        background-color: rgba(0,0,0,0.3);
+    }
+
+    /* === Status Bar === */
     QStatusBar {
         background-color: #241f38;
-        color: rgba(255,255,255,0.55);
+        color: rgba(255,255,255,0.45);
+        font-size: 11px;
     }
     QStatusBar::item { border: none; }
 """
 
 
 def create_app() -> QApplication:
+    # Set Chromium flags BEFORE QApplication is created
+    import os
+    # --disable-blink-features=AutomationControlled: Hides the "navigator.webdriver" flag
+    # --enable-features=NetworkServiceInProcess: Improves stability
+    # --ignore-gpu-blocklist: Forces hardware acceleration
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+        "--ignore-gpu-blocklist "
+        "--enable-gpu-rasterization "
+        "--enable-zero-copy "
+        "--disable-blink-features=AutomationControlled "
+        "--enable-features=WebRTCPipeWireCapturer,Vulkan"
+    )
+    
     # Required by QtWebEngine when embedded in a QApplication.
     QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 

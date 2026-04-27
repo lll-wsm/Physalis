@@ -299,9 +299,9 @@ class DownloadListWidget(QWidget):
         self._tasks.pop(task_id, None)
 
     def clear_completed(self):
-        """Remove all completed tasks."""
+        """Remove all finished tasks (completed, failed, or cancelled)."""
         for task_id in list(self._tasks.keys()):
-            if self._tasks[task_id].status == TaskStatus.COMPLETED:
+            if self._tasks[task_id].is_finished:
                 self.remove_task(task_id)
 
     def _load_thumbnail(self, task_id: str, url: str):
@@ -326,3 +326,9 @@ class DownloadListWidget(QWidget):
         widget = self._item_widgets.get(task.id)
         if widget:
             widget.update_task(task)
+
+    def update_thumbnail(self, task_id: str, pixmap: QPixmap):
+        """Update the background thumbnail for a specific task widget."""
+        widget = self._item_widgets.get(task_id)
+        if widget:
+            widget.set_thumbnail(pixmap)

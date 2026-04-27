@@ -200,7 +200,7 @@ class MainWindow(QMainWindow):
         self._clear_done_btn = QPushButton()
         self._clear_done_btn.setFixedSize(28, 28)
         self._clear_done_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._clear_done_btn.setToolTip("删除所有已完成的下载项")
+        self._clear_done_btn.setToolTip("删除所有已结束的任务")
         self._clear_done_btn.setVisible(False)
         self._clear_done_btn.setIcon(_make_clear_icon())
         self._clear_done_btn.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
@@ -284,11 +284,15 @@ class MainWindow(QMainWindow):
         for task in tasks:
             self._download_list.add_task(task)
             self._downloader._tasks[task.id] = task
+            # Try to restore thumbnails for old tasks
+            self._extract_task_thumbnail(task)
+
         self._center_logo.setVisible(False)
         self._download_list.setVisible(True)
         self._update_stats()
         self._update_clear_done_btn()
         self._statusbar.showMessage(f"已恢复 {len(tasks)} 个历史任务", 3000)
+
 
     def _on_paste_clicked(self):
         from PyQt6.QtWidgets import QApplication
@@ -377,6 +381,7 @@ class MainWindow(QMainWindow):
 
     def _on_remove_task(self, task_id: str):
         self._download_list.remove_task(task_id)
+        self._downloader.remove_task(task_id)
         # If list is empty, restore center logo
         if not self._download_list._tasks:
             self._center_logo.setVisible(True)
@@ -386,17 +391,18 @@ class MainWindow(QMainWindow):
 
     def _on_clear_completed(self):
         self._download_list.clear_completed()
+        self._downloader.clear_finished()
         if not self._download_list._tasks:
             self._center_logo.setVisible(True)
             self._download_list.setVisible(False)
         self._update_stats()
         self._update_clear_done_btn()
-        self._statusbar.showMessage("已清除所有已完成的任务", 3000)
+        self._statusbar.showMessage("已清除所有已结束的任务", 3000)
 
     def _update_clear_done_btn(self):
         """Show/hide the clear-completed button based on whether any tasks are done."""
         any_done = any(
-            t.status == TaskStatus.COMPLETED
+            t.is_finished
             for t in self._download_list._tasks.values()
         )
         self._clear_done_btn.setVisible(any_done)
@@ -447,12 +453,47 @@ class MainWindow(QMainWindow):
         self._browser_window.show()
 
     def _on_sniffed_download(self, task: DownloadTask):
+        # Prevent title duplication by adding a timestamp if needed
+        existing_titles = [t.title for t in self._downloader.tasks]
+        if task.title in existing_titles:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("_%H%M%S")
+            task.title = f"{task.title}{timestamp}"
+
         self._download_list.add_task(task)
         self._downloader.add_task(task)
         self._center_logo.setVisible(False)
         self._download_list.setVisible(True)
         self._update_stats()
         self._statusbar.showMessage(f"已添加下载: {task.url[:60]}")
+        
+        # Priority: Extract frame for main UI background
+        self._extract_task_thumbnail(task)
+
+    def _extract_task_thumbnail(self, task: DownloadTask):
+        """Use FFmpeg to extract a background frame for the main list item."""
+        from PyQt6.QtCore import QProcess
+        from PyQt6.QtGui import QPixmap
+        import shutil
+        
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            return
+
+        process = QProcess(self)
+        # Low quality (q:v 4) is enough for subtle background
+        args = ["-ss", "00:00:01", "-i", task.url, "-vframes", "1", "-q:v", "4", "-f", "image2", "pipe:1"]
+        process.start(ffmpeg_path, args)
+        
+        def on_finished():
+            img_data = process.readAllStandardOutput().data()
+            if img_data:
+                pixmap = QPixmap()
+                if pixmap.loadFromData(img_data):
+                    self._download_list.update_thumbnail(task.id, pixmap)
+            process.deleteLater()
+            
+        process.finished.connect(on_finished)
 
     def _open_cookie_manager(self):
         bw = self._browser_window

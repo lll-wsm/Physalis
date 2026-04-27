@@ -82,6 +82,11 @@ class Downloader(QObject):
     def get_task(self, task_id: str) -> DownloadTask | None:
         return self._tasks.get(task_id)
 
+    @property
+    def tasks(self) -> list[DownloadTask]:
+        """Return a list of all current tasks."""
+        return list(self._tasks.values())
+
     def probe_url(self, url: str):
         """解析URL中的所有视频，不下载，只返回列表"""
         args = [
@@ -112,6 +117,22 @@ class Downloader(QObject):
             self._start(task)
         else:
             self._queue.append(task)
+
+    def remove_task(self, task_id: str):
+        """Physically remove a task from internal storage and update history."""
+        # Cancel first if it's active
+        self.cancel_task(task_id)
+        # Remove from main storage
+        if task_id in self._tasks:
+            self._tasks.pop(task_id)
+            self.save_history()
+
+    def clear_finished(self):
+        """Remove all finished tasks (completed, failed, or cancelled) from history."""
+        to_remove = [tid for tid, t in self._tasks.items() if t.is_finished]
+        for tid in to_remove:
+            self._tasks.pop(tid)
+        self.save_history()
 
     def cancel_task(self, task_id: str):
         if task_id in self._active:
