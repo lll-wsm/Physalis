@@ -31,6 +31,7 @@ from ui.sniff_panel import (
     _make_close_icon,
     get_video_display_name,
 )
+from ui.title_rule_dialog import TitleRuleDialog
 from app import BROWSER_STYLE_SHEET
 
 
@@ -219,6 +220,17 @@ class BrowserWindow(QMainWindow):
         self._sniff_toggle_btn.setProperty("class", "toolBtn")
         self._sniff_toggle_btn.clicked.connect(self._toggle_sniff_panel)
         nav.addWidget(self._sniff_toggle_btn)
+
+        # Settings group
+        self._settings_btn = QPushButton()
+        from ui.main_window import _make_settings_icon
+        self._settings_btn.setIcon(_make_settings_icon())
+        self._settings_btn.setFixedSize(30, 28)
+        self._settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._settings_btn.setToolTip("系统设置")
+        self._settings_btn.setProperty("class", "toolBtn")
+        self._settings_btn.clicked.connect(self._open_settings)
+        nav.addWidget(self._settings_btn)
 
         left_layout.addWidget(nav_container)
 
@@ -616,6 +628,10 @@ class BrowserWindow(QMainWindow):
         url = self._view.url().toString()
         dialog = TitleRuleDialog(self._page, url, self._title_rule_manager, self)
         dialog.exec()
+
+    def _open_settings(self):
+        from ui.settings_dialog import SettingsDialog
+        SettingsDialog(self).exec()
 
     def _toggle_sniff_panel(self):
         """Show or hide the sniff panel and update toggle button appearance."""

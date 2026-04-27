@@ -15,6 +15,7 @@ class SniffedVideo:
     quality: str = ""    # Reserved for future quality extraction from URL
     page_title: str = "" # Page title set by BrowserWindow when available
     content_length: int = 0  # Bytes from Content-Length header (HEAD probe)
+    content_type: str = ""   # MIME type from server response
     timestamp: float = field(default_factory=time.time)
 
 
@@ -25,11 +26,11 @@ _MEDIA_SUFFIXES = (".m3u8", ".mp4", ".flv", ".m4s", ".webm", ".mpd")
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp")
 
 # Non-media suffixes to reject — JSON API responses that happen to match path keywords
-_NON_MEDIA_SUFFIXES = (".json", ".xml")
+_NON_MEDIA_SUFFIXES = (".json", ".xml", ".js", ".css", ".php", ".aspx", ".jsp", ".html", ".htm")
 
 # Path keywords that indicate media content (kept conservative to avoid false positives)
 _MEDIA_PATH_KEYWORDS = (
-    "/manifest/", "/aweme/v1/", "/vod/",
+    "/manifest/", "/aweme/v1/", "/vod/", "/video/", "/api/v1/play",
 )
 
 # Suffix → format_hint mapping
@@ -81,29 +82,40 @@ def _classify_url(url: str) -> str | None:
 
 
 def _dedup_key(url: str) -> str:
-    """Normalize URL for dedup.
-
-    For segment-based formats (.ts, .m4s), collapse all segments in the same
-    directory to one key.
-    For media-keyword matched paths (e.g. /aweme/v1/), include query params
-    so different videos with IDs in query strings are not collapsed together.
-    For other suffix-matched formats, strip query parameters.
-    """
+    """Normalize URL for dedup to prevent duplicates with dynamic tokens."""
     parsed = urlparse(url)
     path_lower = parsed.path.lower()
 
+    # 1. Handle segment-based formats (.ts, .m4s) by directory
     for seg_suffix in _SEGMENT_SUFFIXES:
         if path_lower.endswith(seg_suffix):
             dir_path = parsed.path.rsplit("/", 1)[0]
             return f"{parsed.scheme}://{parsed.netloc}{dir_path}/*{seg_suffix}"
 
-    # For media-keyword paths (typically no extension, video ID in query),
-    # use the full URL so different video_ids get distinct entries.
+    # 2. Extract unique video ID from query params if available (Douyin, etc.)
+    params = {}
+    if parsed.query:
+        for pair in parsed.query.split("&"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                params[k] = v
+    
+    uid = params.get("video_id") or params.get("vid") or params.get("id")
+    if uid:
+        return f"UID:{uid}"
+
+    # 3. For media-keyword paths, check if path itself contains ID
     if any(kw in path_lower for kw in _MEDIA_PATH_KEYWORDS):
+        # Try to find a long hex/alphanumeric string in path as ID
+        # (Very common in VOD service URLs)
+        import re
+        m = re.search(r'/[0-9a-f]{20,}/', path_lower)
+        if m: return m.group(0)
         return url
 
-    # Strip query string for suffix-matched formats
-    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, "", ""))
+    # 4. Standard: Strip ALL query strings for suffix-matched formats
+    # Most .mp4/.m3u8 duplicates differ only by auth tokens in query
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
 
 class NetworkSniffer(QWebEngineUrlRequestInterceptor):
@@ -122,8 +134,7 @@ class NetworkSniffer(QWebEngineUrlRequestInterceptor):
             pass
 
     def _intercept_request(self, info):
-        # Skip page document loads (main/sub frames). Otherwise the page URL
-        # itself can match heuristics like "/video/" and get reported as media.
+        # Skip common non-media resource types
         rt = info.resourceType()
         if rt in (
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypeMainFrame,
@@ -132,6 +143,9 @@ class NetworkSniffer(QWebEngineUrlRequestInterceptor):
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypeScript,
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypeImage,
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypeFontResource,
+            QWebEngineUrlRequestInfo.ResourceType.ResourceTypeFavicon,
+            QWebEngineUrlRequestInfo.ResourceType.ResourceTypePing,
+            QWebEngineUrlRequestInfo.ResourceType.ResourceTypeCspReport,
         ):
             return
 

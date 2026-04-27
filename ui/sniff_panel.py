@@ -246,6 +246,19 @@ def _format_size(bytes_: int) -> str:
     return f"{bytes_:.1f} TB"
 
 
+class ClickableLabel(QLabel):
+    clicked = pyqtSignal()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(ev)
+
+
 class _VideoDetailDialog(QDialog):
     def __init__(self, video: SniffedVideo, parent=None):
         super().__init__(parent)
@@ -278,7 +291,7 @@ class _VideoDetailDialog(QDialog):
         left = QVBoxLayout()
         left.setSpacing(4)
         left.addWidget(QLabel("类型"))
-        type_lbl = QLabel(f"  {v.format_hint}")
+        type_lbl = QLabel(f"  {v.format_hint} ({v.content_type or '未知'})")
         type_lbl.setStyleSheet("color: #ddd6fe; font-size: 13px;")
         left.addWidget(type_lbl)
         if v.content_length > 0:
@@ -366,11 +379,30 @@ class _MediaRow(QWidget):
         self._size_label = QLabel(size_text)
         self._size_label.setStyleSheet("color: rgba(255,255,255,0.3); font-size: 10px;")
         meta_layout.addWidget(self._size_label)
+
+        # 3. MIME Type Label
+        self._type_label = ClickableLabel(self._video.content_type)
+        self._type_label.setStyleSheet("color: rgba(139,92,246,0.5); font-size: 10px; margin-left: 4px;")
+        self._type_label.setToolTip("点击复制 Content-Type")
+        self._type_label.clicked.connect(self._copy_type)
+        meta_layout.addWidget(self._type_label)
+
         meta_layout.addStretch()
         name_container.addLayout(meta_layout)
         layout.addLayout(name_container, 1)
 
-        actions = QVBoxLayout()
+    def _copy_type(self):
+        if not self._video.content_type: return
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self._video.content_type)
+        # Briefly change style to show feedback
+        orig = self._type_label.styleSheet()
+        self._type_label.setStyleSheet("color: #4ade80; font-size: 10px; margin-left: 4px; font-weight: bold;")
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(1000, lambda: self._type_label.setStyleSheet(orig))
+
+    def set_thumbnail(self, pixmap: QPixmap):
+
         actions.setSpacing(4)
         btn_size, inner_icon_sz = 24, 14
         self._dl_btn = QPushButton()
@@ -412,6 +444,7 @@ class _MediaRow(QWidget):
             if not self.isVisible() and self.parent() is None: return
             self._video.format_hint = fmt
             if hasattr(self, "_badge"): self._badge.setText(fmt.upper())
+            if hasattr(self, "_type_label"): self._type_label.setText(self._video.content_type)
             if self._video.content_length > 0 and hasattr(self, "_size_label"): self._size_label.setText(_format_size(self._video.content_length))
         except (RuntimeError, AttributeError): pass
 
@@ -606,10 +639,17 @@ class SniffPanel(QWidget):
             self._stack.setCurrentIndex(0)
 
     def add_video(self, video: SniffedVideo):
-        if video.url in self._seen_urls: return
+        # Normalize URL to check for duplicates that differ only by dynamic tokens
+        from core.sniffer import _dedup_key
+        norm_key = _dedup_key(video.url)
+        
+        if norm_key in self._seen_urls:
+            return
+            
         basename = urlparse(video.url).path.split("/")[-1].lower()
         if any(basename.endswith(s) for s in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".css", ".js", ".woff2", ".woff", ".ttf")): return
-        self._seen_urls.add(video.url)
+        
+        self._seen_urls.add(norm_key)
         self._videos.append(video)
         row = _MediaRow(video)
         row.download_clicked.connect(self.download_requested.emit)
@@ -644,22 +684,71 @@ class SniffPanel(QWidget):
         entry = self._probing.pop(reply, None)
         if entry is None: reply.deleteLater(); return
         video, row = entry
+        
+        from core.config import Config
+        config = Config()
+        bad_types = [t.strip().lower() for t in config.sniff_filter_types.split(",") if t.strip()]
+
+        # 1. Capture content type from response headers (available even on error sometimes)
+        content_type_raw = reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader)
+        if content_type_raw:
+            video.content_type = content_type_raw.split(";")[0].strip().lower()
+
+        # 2. Filter Logic (Triggered on BOTH Success and Failure)
+        should_remove = False
+        if video.content_type:
+            if any(bad in video.content_type for bad in bad_types):
+                should_remove = True
+        elif config.filter_empty_type:
+            # If still no content_type after head request, it's truly empty
+            should_remove = True
+
+        if should_remove:
+            self._remove_video_by_url(video.url)
+            reply.deleteLater()
+            return
+
+        # 3. Handle successful metadata update
         if reply.error() == QNetworkReply.NetworkError.NoError:
-            content_type = reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader)
             size = reply.header(QNetworkRequest.KnownHeaders.ContentLengthHeader)
             content_range = reply.rawHeader(b"Content-Range").data().decode()
             if content_range and "/" in content_range:
                 try: size = int(content_range.split("/")[-1])
                 except ValueError: pass
             if size is not None and int(size) > 0: video.content_length = int(size)
-            if content_type:
-                mime = content_type.split(";")[0].strip().lower()
-                fmt = _CONTENT_TYPE_FORMAT.get(mime, "media")
+            
+            if video.content_type:
+                fmt = _CONTENT_TYPE_FORMAT.get(video.content_type, "media")
                 video.format_hint = fmt
+            
             row.set_format(video.format_hint)
             for card in self._cards:
                 if card._video is video: card.set_format(video.format_hint); break
+        
         reply.deleteLater()
+
+    def _remove_video_by_url(self, url: str):
+        """Remove a video entry from memory and UI."""
+        # 1. Remove from lists
+        self._videos = [v for v in self._videos if v.url != url]
+        self._seen_urls.discard(url)
+
+        # 2. Remove from UI
+        for row in list(self._rows):
+            if row._video.url == url:
+                self._list_layout.removeWidget(row)
+                row.deleteLater()
+                self._rows.remove(row)
+                break
+        
+        for card in list(self._cards):
+            if card._video.url == url:
+                self._grid_layout.removeWidget(card)
+                card.deleteLater()
+                self._cards.remove(card)
+                break
+        
+        self._count_label.setText(f"嗅探到 {len(self._videos)} 个资源")
 
     def clear(self):
         for reply in list(self._probing.keys()):

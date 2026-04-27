@@ -34,6 +34,8 @@ class Config:
             "max_concurrent": 3,
             "preferred_quality": "best",
             "language": "zh_CN",
+            "sniff_filter_types": "application/json,text/html,text/javascript,text/css,application/x-protobuf",
+            "filter_empty_type": False,
         }
         if self._path.exists():
             with open(self._path, "r", encoding="utf-8") as f:
@@ -80,4 +82,22 @@ class Config:
     @language.setter
     def language(self, value: str):
         self._data["language"] = value
+        self._save()
+
+    @property
+    def sniff_filter_types(self) -> str:
+        return self._data.get("sniff_filter_types", "")
+
+    @sniff_filter_types.setter
+    def sniff_filter_types(self, value: str):
+        self._data["sniff_filter_types"] = value
+        self._save()
+
+    @property
+    def filter_empty_type(self) -> bool:
+        return self._data.get("filter_empty_type", False)
+
+    @filter_empty_type.setter
+    def filter_empty_type(self, value: bool):
+        self._data["filter_empty_type"] = value
         self._save()

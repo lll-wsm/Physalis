@@ -6,11 +6,13 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QSpinBox,
     QComboBox,
     QLineEdit,
     QPushButton,
     QDialogButtonBox,
+    QCheckBox,
 )
 
 from core.config import Config
@@ -116,7 +118,19 @@ class SettingsDialog(QDialog):
         self._quality_combo.setToolTip("best = 自动选择最佳可用画质")
         layout.addRow("画质偏好:", self._quality_combo)
 
-        layout.addSpacing(12)
+        # 嗅探过滤类型
+        self._filter_input = QLineEdit(self._config.sniff_filter_types)
+        self._filter_input.setPlaceholderText("用逗号分隔，如: application/json,text/html")
+        self._filter_input.setToolTip("过滤掉这些 Content-Type 响应，防止 JSON 等数据混入列表")
+        layout.addRow("嗅探过滤:", self._filter_input)
+
+        self._filter_empty_cb = QCheckBox("拦截空 Content-Type")
+        self._filter_empty_cb.setChecked(self._config.filter_empty_type)
+        self._filter_empty_cb.setToolTip("如果服务器没有返回 Content-Type，则直接过滤掉")
+        layout.addRow("", self._filter_empty_cb)
+
+        # Bottom padding
+        layout.addRow(QLabel(""))
 
         # 确定/取消
         buttons = QDialogButtonBox(
@@ -135,4 +149,6 @@ class SettingsDialog(QDialog):
         self._config.download_dir = Path(self._path_input.text())
         self._config.max_concurrent = self._concurrent_spin.value()
         self._config.preferred_quality = self._quality_combo.currentText()
+        self._config.sniff_filter_types = self._filter_input.text().strip()
+        self._config.filter_empty_type = self._filter_empty_cb.isChecked()
         self.accept()

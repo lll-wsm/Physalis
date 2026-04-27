@@ -109,6 +109,26 @@ def _make_clear_icon() -> QIcon:
     return QIcon(pixmap)
 
 
+def _make_settings_icon() -> QIcon:
+    pixmap = _create_hq_pixmap(ICON_SIZE)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = p.pen()
+    pen.setColor(QColor("#c4b5fd"))
+    pen.setWidthF(1.5)
+    p.setPen(pen)
+    # Gear shape
+    p.drawEllipse(4, 4, 12, 12)
+    for i in range(8):
+        p.save()
+        p.translate(10, 10)
+        p.rotate(i * 45)
+        p.drawLine(0, -6, 0, -8)
+        p.restore()
+    p.end()
+    return QIcon(pixmap)
+
+
 _URL_RE = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
 
 
@@ -231,8 +251,19 @@ class MainWindow(QMainWindow):
         status_layout.addStretch()
 
         self._stats_label = QLabel("")
-        self._stats_label.setStyleSheet("color: rgba(255,255,255,0.3); font-size: 11px; margin-right: 12px;")
+        self._stats_label.setStyleSheet("color: rgba(255,255,255,0.3); font-size: 11px; margin-right: 8px;")
         status_layout.addWidget(self._stats_label)
+
+        # 5. Settings Button
+        self._settings_btn = QPushButton()
+        self._settings_btn.setFixedSize(28, 28)
+        self._settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._settings_btn.setToolTip("系统设置")
+        self._settings_btn.setIcon(_make_settings_icon())
+        self._settings_btn.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
+        self._settings_btn.setStyleSheet("QPushButton { background: transparent; border-radius: 6px; } QPushButton:hover { background: rgba(255,255,255,0.1); }")
+        self._settings_btn.clicked.connect(self._open_settings)
+        status_layout.addWidget(self._settings_btn)
 
         self._statusbar.addWidget(status_widget, 1)
 
