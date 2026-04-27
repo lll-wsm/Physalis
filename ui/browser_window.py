@@ -550,22 +550,29 @@ class BrowserWindow(QMainWindow):
         self._update_login_indicator()
 
     def closeEvent(self, event):
+        """Window close only hides it to avoid expensive WebEngineProfile recreation."""
         event.ignore()
+        try:
+            if hasattr(self, "_view") and self._view:
+                self._view.load(QUrl("about:blank"))
+        except (RuntimeError, AttributeError):
+            pass
         self._cookie_manager.save()
-        self._view.load(QUrl("about:blank"))
         self.hide()
 
     def shutdown(self):
-        """Clean up web engine resources before app quit (avoids IO thread crash)."""
-        # Disconnect signals first to avoid calls during destruction
+        """Clean up web engine resources before app quit."""
+        # 1. Disconnect signals to stop callbacks
         try:
-            self._view.urlChanged.disconnect(self._on_url_changed)
-        except (TypeError, RuntimeError):
+            if hasattr(self, "_view"):
+                self._view.urlChanged.disconnect(self._on_url_changed)
+        except (TypeError, RuntimeError, AttributeError):
             pass
 
         self._cookie_manager.save()
+        
+        # 2. Safely destroy Sniffer
         if self._sniffer is not None:
-            # Safely clear and remove interceptor
             try:
                 self._sniffer.clear()
             except Exception:
@@ -574,11 +581,14 @@ class BrowserWindow(QMainWindow):
             self._sniffer.deleteLater()
             self._sniffer = None
             
-        self._view.stop()
-        self._view.load(QUrl("about:blank"))
-        # Deleting the view/page explicitly helps clean up the profile properly
-        self._page.deleteLater()
-        self._view.deleteLater()
+        # 3. Safely destroy WebEngine core objects
+        try:
+            self._view.stop()
+            self._view.load(QUrl("about:blank"))
+            self._page.deleteLater()
+            self._view.deleteLater()
+        except (RuntimeError, AttributeError):
+            pass
 
     def _update_login_indicator(self):
         if self._cookie_manager.has_any():

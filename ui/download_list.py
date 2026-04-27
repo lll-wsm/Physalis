@@ -41,6 +41,8 @@ class DownloadItemWidget(QWidget):
     cancel_clicked = pyqtSignal(str)  # task_id
     retry_clicked = pyqtSignal(str)   # task_id
     remove_clicked = pyqtSignal(str)  # task_id
+    pause_clicked = pyqtSignal(str)   # task_id
+    resume_clicked = pyqtSignal(str)  # task_id
 
     def __init__(self, task: DownloadTask, parent=None):
         super().__init__(parent)
@@ -131,6 +133,10 @@ class DownloadItemWidget(QWidget):
             self.retry_clicked.emit(self._task_id)
         elif task.status == TaskStatus.CANCELLED:
             self.remove_clicked.emit(self._task_id)
+        elif task.status == TaskStatus.DOWNLOADING:
+            self.pause_clicked.emit(self._task_id)
+        elif task.status == TaskStatus.PAUSED:
+            self.resume_clicked.emit(self._task_id)
         else:
             self.cancel_clicked.emit(self._task_id)
 
@@ -185,7 +191,14 @@ class DownloadItemWidget(QWidget):
             self._size_lbl.setStyleSheet("font-size: 12px; color: rgba(255,255,255,0.55);")
             self._speed_lbl.setStyleSheet("font-size: 12px; color: rgba(255,255,255,0.55);")
             self._pct_lbl.setStyleSheet("font-size: 12px; color: #a78bfa; font-weight: 600;")
-            self._action_btn.setText("取消")
+            self._action_btn.setText("暂停")
+            self._action_btn.setEnabled(True)
+        elif task.status == TaskStatus.PAUSED:
+            self._size_lbl.setText(task.size_downloaded or task.size_total or "--")
+            self._speed_lbl.setText("已暂停")
+            self._pct_lbl.setText(f"{int(task.progress)}%")
+            self._pct_lbl.setStyleSheet("font-size: 12px; color: rgba(255,255,255,0.4);")
+            self._action_btn.setText("继续")
             self._action_btn.setEnabled(True)
         elif task.status == TaskStatus.MERGING:
             self._size_lbl.setText(task.size_total or "--")
@@ -217,6 +230,8 @@ class DownloadListWidget(QWidget):
     cancel_requested = pyqtSignal(str)  # task_id
     retry_requested = pyqtSignal(str)   # task_id
     remove_requested = pyqtSignal(str)  # task_id
+    pause_requested = pyqtSignal(str)   # task_id
+    resume_requested = pyqtSignal(str)  # task_id
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -270,6 +285,8 @@ class DownloadListWidget(QWidget):
         item_widget.cancel_clicked.connect(self.cancel_requested.emit)
         item_widget.retry_clicked.connect(self.retry_requested.emit)
         item_widget.remove_clicked.connect(self.remove_requested.emit)
+        item_widget.pause_clicked.connect(self.pause_requested.emit)
+        item_widget.resume_clicked.connect(self.resume_requested.emit)
         self._item_widgets[task.id] = item_widget
 
         # Insert before the stretch

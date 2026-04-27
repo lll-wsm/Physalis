@@ -280,11 +280,17 @@ class MainWindow(QMainWindow):
         self._downloader.task_completed.connect(self._on_task_completed)
         self._downloader.task_failed.connect(self._on_task_failed)
         self._downloader.task_cancelled.connect(self._on_task_cancelled)
+        self._downloader.task_paused.connect(self._on_task_progress) # Use progress handler to update UI
+        self._downloader.task_resumed.connect(self._on_task_progress)
+        
         self._downloader.probe_finished.connect(self._on_probe_finished)
         self._downloader.probe_failed.connect(self._on_probe_failed)
+        
         self._download_list.cancel_requested.connect(self._downloader.cancel_task)
         self._download_list.retry_requested.connect(self._on_retry_task)
         self._download_list.remove_requested.connect(self._on_remove_task)
+        self._download_list.pause_requested.connect(self._downloader.pause_task)
+        self._download_list.resume_requested.connect(self._downloader.resume_task)
 
     def _on_task_progress(self, task):
         self._download_list.update_task(task)
@@ -391,8 +397,11 @@ class MainWindow(QMainWindow):
     def _on_retry_task(self, tid):
         task = self._downloader.get_task(tid)
         if not task: return
+        # Reset only transient error/status, keep size and progress for resume
         task.status = TaskStatus.PENDING
-        task.progress = 0.0
+        task.error = ""
+        task.speed = ""
+        task.eta = ""
         self._download_list.update_task(task)
         self._downloader.add_task(task)
         self._update_stats()

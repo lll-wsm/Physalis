@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 class TaskStatus(enum.Enum):
     PENDING = "pending"
     DOWNLOADING = "downloading"
+    PAUSED = "paused"
     MERGING = "merging"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -60,6 +61,11 @@ class DownloadTask:
 
     def mark_merging(self):
         self.status = TaskStatus.MERGING
+
+    def mark_paused(self):
+        self.status = TaskStatus.PAUSED
+        self.speed = ""
+        self.eta = ""
 
     def mark_completed(self, output_path: str = ""):
         self.status = TaskStatus.COMPLETED
