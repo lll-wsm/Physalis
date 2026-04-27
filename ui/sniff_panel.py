@@ -352,22 +352,64 @@ class _MediaRow(QWidget):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(12)
 
-        self._thumb_label = QLabel()
+        # 0. Thumbnail with Action Overlay
+        self._thumb_container = QWidget()
+        self._thumb_container.setFixedSize(80, 45)
+
+        # The actual image
+        self._thumb_label = QLabel(self._thumb_container)
         self._thumb_label.setFixedSize(80, 45)
         self._thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._thumb_label.setStyleSheet("background-color: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); color: rgba(255,255,255,0.1); font-size: 14px;")
+        self._thumb_label.setStyleSheet("""
+            background-color: rgba(255,255,255,0.05); 
+            border-radius: 4px; 
+            border: 1px solid rgba(255,255,255,0.05); 
+            color: rgba(255,255,255,0.1); 
+            font-size: 14px;
+        """)
         self._thumb_label.setText("▶")
-        layout.addWidget(self._thumb_label)
 
+        # Action Overlay (Horizontal layout at bottom right of thumb)
+        overlay_layout = QHBoxLayout(self._thumb_container)
+        overlay_layout.setContentsMargins(2, 2, 2, 2)
+        overlay_layout.setSpacing(3)
+        overlay_layout.addStretch()
+
+        inner_btn_sz = 18
+        icon_sz = 12
+
+        self._info_btn = QPushButton()
+        self._info_btn.setFixedSize(inner_btn_sz, inner_btn_sz)
+        self._info_btn.setIcon(_make_info_icon())
+        self._info_btn.setIconSize(QSize(icon_sz, icon_sz))
+        self._info_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._info_btn.setStyleSheet("QPushButton { background: rgba(0,0,0,0.5); border-radius: 3px; } QPushButton:hover { background: rgba(0,0,0,0.8); }")
+        self._info_btn.clicked.connect(lambda: self.info_clicked.emit(self._video))
+        overlay_layout.addWidget(self._info_btn, 0, Qt.AlignmentFlag.AlignBottom)
+
+        self._dl_btn = QPushButton()
+        self._dl_btn.setFixedSize(inner_btn_sz, inner_btn_sz)
+        self._dl_btn.setIcon(_make_download_icon())
+        self._dl_btn.setIconSize(QSize(icon_sz, icon_sz))
+        self._dl_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._dl_btn.setStyleSheet("QPushButton { background: #8b5cf6; border-radius: 3px; } QPushButton:hover { background: #7c3aed; }")
+        self._dl_btn.clicked.connect(lambda: self.download_clicked.emit(self._video))
+        overlay_layout.addWidget(self._dl_btn, 0, Qt.AlignmentFlag.AlignBottom)
+
+        layout.addWidget(self._thumb_container)
+
+        # 1. Info container (Name + Meta)
         name_container = QVBoxLayout()
         name_container.setSpacing(4)
+        name_container.setContentsMargins(0, 0, 0, 0)
+
         self._name_label = QLabel(_uri_label(self._video.url))
-        self._name_label.setStyleSheet("color: #e2e8f0; font-size: 12px; font-weight: 600; background: transparent;")
+        self._name_label.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 600; background: transparent;")
         self._name_label.setMinimumWidth(10)
         self._name_label.setWordWrap(False)
         self._name_label.setToolTip(self._video.url)
         name_container.addWidget(self._name_label)
-        
+
         meta_layout = QHBoxLayout()
         meta_layout.setSpacing(6)
         self._badge = QLabel(self._video.format_hint.upper())
@@ -375,6 +417,7 @@ class _MediaRow(QWidget):
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet("background-color: rgba(139,92,246,0.15); color: #a78bfa; border-radius: 3px; font-size: 9px; font-weight: 800;")
         meta_layout.addWidget(self._badge)
+
         size_text = _format_size(self._video.content_length) if self._video.content_length > 0 else "未知大小"
         self._size_label = QLabel(size_text)
         self._size_label.setStyleSheet("color: rgba(255,255,255,0.3); font-size: 10px;")
@@ -395,33 +438,10 @@ class _MediaRow(QWidget):
         if not self._video.content_type: return
         from PyQt6.QtWidgets import QApplication
         QApplication.clipboard().setText(self._video.content_type)
-        # Briefly change style to show feedback
         orig = self._type_label.styleSheet()
         self._type_label.setStyleSheet("color: #4ade80; font-size: 10px; margin-left: 4px; font-weight: bold;")
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(1000, lambda: self._type_label.setStyleSheet(orig))
-
-    def set_thumbnail(self, pixmap: QPixmap):
-
-        actions.setSpacing(4)
-        btn_size, inner_icon_sz = 24, 14
-        self._dl_btn = QPushButton()
-        self._dl_btn.setIcon(_make_download_icon())
-        self._dl_btn.setIconSize(QSize(inner_icon_sz, inner_icon_sz))
-        self._dl_btn.setFixedSize(btn_size, btn_size)
-        self._dl_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._dl_btn.setStyleSheet(f"QPushButton {{ background: rgba(139,92,246,0.2); border: none; border-radius: 6px; }} QPushButton:hover {{ background: rgba(139,92,246,0.4); }}")
-        self._dl_btn.clicked.connect(lambda: self.download_clicked.emit(self._video))
-        actions.addWidget(self._dl_btn)
-        self._info_btn = QPushButton()
-        self._info_btn.setIcon(_make_info_icon())
-        self._info_btn.setIconSize(QSize(inner_icon_sz, inner_icon_sz))
-        self._info_btn.setFixedSize(btn_size, btn_size)
-        self._info_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._info_btn.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 6px; } QPushButton:hover { background: rgba(255,255,255,0.1); }")
-        self._info_btn.clicked.connect(lambda: self.info_clicked.emit(self._video))
-        actions.addWidget(self._info_btn)
-        layout.addLayout(actions)
 
     def set_thumbnail(self, pixmap: QPixmap):
         try:
