@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Physalis is a cross-platform video downloader built with PyQt6 + PyQt6-WebEngine. It wraps `yt-dlp` as the download engine and provides an embedded browser for sniffing video URLs from pages and managing cookies. The UI language is zh_CN.
+Physalis is a cross-platform video downloader built with PyQt6 + PyQt6-WebEngine (Python 3.10+). It wraps `yt-dlp` as the download engine and provides an embedded browser for sniffing video URLs from pages and managing cookies. The UI language is zh_CN.
 
 Two windows coexist: `MainWindow` (the app's primary window with download list) and `BrowserWindow` (embedded QWebEngineView for browsing and video sniffing). `BrowserWindow` is owned by `MainWindow` and reused across open/close cycles to avoid QtWebEngine crash on macOS.
+
+**Entry point:** `main.py` → `app.create_app()` (sets Chromium flags + Qt attributes + Fusion style) → `MainWindow()` → `app.exec()`.
 
 ## Running
 
@@ -24,7 +26,7 @@ There is no test suite.
 ### Files
 
 ```
-main.py          → app.py → ui/main_window.py
+main.py          → app.py (create_app, style sheets) → ui/main_window.py
 core/
   config.py       Singleton Config (__new__-based), reads/writes config.json
   task.py         DownloadTask dataclass + TaskStatus enum
@@ -44,6 +46,9 @@ ui/
   settings_dialog.py     Config editor
   title_rule_dialog.py   Interactive CSS selector tester/saver for title rules
   cookie_manager_dialog.py  Cookie viewer/editor
+ui/resources/    Icons and other static assets
+utils/           Helper utilities (currently empty)
+docs/            Design documents and plans
 ```
 
 ### Signals Flow
@@ -98,6 +103,10 @@ Every pasted URL goes through `Downloader.probe_url()` which runs `yt-dlp --flat
 - Widgets like `DownloadItemWidget`, `SniffPanel`, and dialogs have inline styles that intentionally override global sheet
 
 App-level `setStyleSheet` is NOT used — it breaks `QWebEngineView` rendering on macOS due to a Qt/WebEngine compositing bug.
+
+### Chromium Flags
+
+`create_app()` sets `QTWEBENGINE_CHROMIUM_FLAGS` before `QApplication` creation: `--ignore-gpu-blocklist`, `--enable-gpu-rasterization`, `--enable-zero-copy`, `--disable-blink-features=AutomationControlled`, `--enable-features=WebRTCPipeWireCapturer,Vulkan`. Also enables `AA_ShareOpenGLContexts`. These must be set before `QApplication()` is constructed.
 
 ### Task History
 

@@ -251,8 +251,29 @@ BROWSER_STYLE_SHEET = """
 
 
 def create_app() -> QApplication:
-    # Set Chromium flags BEFORE QApplication is created
     import os
+    from pathlib import Path
+
+    # Set Qt WebEngine path for packaged app
+    if getattr(sys, 'frozen', False):
+        # In onedir bundle, _MEIPASS points to Contents/Frameworks
+        # The actual path structure is: Contents/Frameworks/PyQt6/...
+        meipass = Path(sys._MEIPASS)  # This is Contents/Frameworks
+        app_contents = meipass.parent  # This is Contents
+        frameworks_dir = app_contents / "Frameworks"
+
+        # QtWebEngineProcess is located in the PyQt6 framework bundle
+        webengine_process_path = (
+            frameworks_dir / "PyQt6" / "Qt6" / "lib" / "QtWebEngineCore.framework"
+            / "Versions" / "Resources" / "Helpers" / "QtWebEngineProcess.app" / "Contents" / "MacOS" / "QtWebEngineProcess"
+        )
+        if webengine_process_path.exists():
+            os.environ["QTWEBENGINE_PROCESS_PATH"] = str(webengine_process_path.parent)
+
+        # Also set library path so Qt can find frameworks
+        os.environ["DYLD_FRAMEWORK_PATH"] = str(frameworks_dir) + ":" + os.environ.get("DYLD_FRAMEWORK_PATH", "")
+
+    # Set Chromium flags BEFORE QApplication is created
     # --disable-blink-features=AutomationControlled: Hides the "navigator.webdriver" flag
     # --enable-features=NetworkServiceInProcess: Improves stability
     # --ignore-gpu-blocklist: Forces hardware acceleration
@@ -263,7 +284,7 @@ def create_app() -> QApplication:
         "--disable-blink-features=AutomationControlled "
         "--enable-features=WebRTCPipeWireCapturer,Vulkan"
     )
-    
+
     # Required by QtWebEngine when embedded in a QApplication.
     QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 

@@ -1,5 +1,6 @@
 import re
 import os
+import sys
 import json
 from pathlib import Path
 from datetime import datetime
@@ -142,7 +143,11 @@ class MainWindow(QMainWindow):
         list_layout.setContentsMargins(0, 0, 0, 0)
 
         self._center_logo = QLabel()
-        logo_path = Path(__file__).parent.parent / "icon.iconset" / "icon_512x512@2x.png"
+        if getattr(sys, 'frozen', False):
+            # _MEIPASS is Contents/Frameworks, Resources is sibling dir
+            logo_path = Path(sys._MEIPASS).parent / "Resources" / "icon.iconset" / "icon_512x512@2x.png"
+        else:
+            logo_path = Path(__file__).parent.parent / "icon.iconset" / "icon_512x512@2x.png"
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path)).scaledToHeight(300, Qt.TransformationMode.SmoothTransformation)
             self._center_logo.setPixmap(pixmap)
@@ -242,11 +247,14 @@ class MainWindow(QMainWindow):
         browser_menu.addAction(clear_cookie_act)
 
     def _setup_context_menu(self):
-        self._download_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._download_list.customContextMenuRequested.connect(self._on_context_menu)
+        # Bind context menu to the container so it works even when list is hidden (empty)
+        self._list_container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list_container.customContextMenuRequested.connect(self._on_context_menu)
 
     def _on_context_menu(self, pos):
-        item = self._download_list.item_at(pos)
+        # Map position to download_list coordinate system to find items
+        list_pos = self._download_list.mapFrom(self._list_container, pos)
+        item = self._download_list.item_at(list_pos)
         menu = QMenu(self)
         
         if item:
@@ -259,12 +267,12 @@ class MainWindow(QMainWindow):
             remove_act.triggered.connect(lambda: self._on_remove_task(task.id))
             menu.addAction(remove_act)
         else:
-            # 2. Right click on empty area
+            # 2. Right click on empty area (or logo area)
             paste_act = QAction("从剪贴板添加链接", self)
             paste_act.triggered.connect(self._on_paste_clicked)
             menu.addAction(paste_act)
             
-        menu.exec(self._download_list.mapToGlobal(pos))
+        menu.exec(self._list_container.mapToGlobal(pos))
 
     def _open_file_location(self, path: str):
         if not path or not Path(path).exists():
