@@ -303,7 +303,7 @@ def create_app() -> QApplication:
     app.setOrganizationName("Physalis")
 
     # Set app icon (dock icon on macOS)
-    icon_path = Path(__file__).parent / "Biberry.icns"
+    icon_path = Path(__file__).parent / "Physalis.icns"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
