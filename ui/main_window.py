@@ -1,8 +1,10 @@
 import re
-
+import os
+import json
 from pathlib import Path
+from datetime import datetime
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QProcess
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -28,35 +30,39 @@ from app import MAIN_STYLE_SHEET
 ICON_SIZE = 20
 
 
-def _make_browser_icon() -> QIcon:
-    pixmap = QPixmap(ICON_SIZE, ICON_SIZE)
+def _create_hq_pixmap(size: int) -> QPixmap:
+    """Create a High-DPI aware transparent pixmap."""
+    dpr = 2.0 
+    pixmap = QPixmap(int(size * dpr), int(size * dpr))
     pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap.setDevicePixelRatio(dpr)
+    return pixmap
+
+
+def _make_browser_icon() -> QIcon:
+    pixmap = _create_hq_pixmap(ICON_SIZE)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
     pen.setColor(QColor("#c4b5fd"))
     pen.setWidthF(1.5)
     p.setPen(pen)
-    # Globe: circle + meridian lines
-    center = 10
     p.drawEllipse(2, 2, 16, 16)
     p.drawEllipse(2, 4, 16, 12)
-    p.drawLine(center, 2, center, 18)
+    p.drawLine(10, 2, 10, 18)
     p.drawLine(2, 10, 18, 10)
     p.end()
     return QIcon(pixmap)
 
 
 def _make_paste_icon() -> QIcon:
-    pixmap = QPixmap(ICON_SIZE, ICON_SIZE)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(ICON_SIZE)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
     pen.setColor(QColor("#c4b5fd"))
     pen.setWidthF(1.5)
     p.setPen(pen)
-    # Document body
     body = QPainterPath()
     body.moveTo(6, 1)
     body.lineTo(14, 1)
@@ -67,10 +73,8 @@ def _make_paste_icon() -> QIcon:
     body.lineTo(2, 5)
     body.lineTo(6, 1)
     p.drawPath(body)
-    # Fold indicator
     p.drawLine(14, 1, 14, 5)
     p.drawLine(14, 5, 18, 5)
-    # Lines on document
     p.drawLine(5, 9, 15, 9)
     p.drawLine(5, 12, 15, 12)
     p.drawLine(5, 15, 12, 15)
@@ -79,15 +83,13 @@ def _make_paste_icon() -> QIcon:
 
 
 def _make_clear_icon() -> QIcon:
-    pixmap = QPixmap(ICON_SIZE, ICON_SIZE)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(ICON_SIZE)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
     pen.setColor(QColor("#c4b5fd"))
     pen.setWidthF(1.5)
     p.setPen(pen)
-    # Trash can body
     body = QPainterPath()
     body.moveTo(5, 7)
     body.lineTo(15, 7)
@@ -95,13 +97,10 @@ def _make_clear_icon() -> QIcon:
     body.lineTo(4, 18)
     body.closeSubpath()
     p.drawPath(body)
-    # Lid
     p.drawLine(3, 7, 17, 7)
-    # Handle
     p.drawLine(8, 3, 12, 3)
     p.drawLine(8, 3, 8, 7)
     p.drawLine(12, 3, 12, 7)
-    # Lines inside
     p.drawLine(8, 10, 12, 10)
     p.drawLine(7, 13, 13, 13)
     p.drawLine(8, 16, 12, 16)
@@ -138,7 +137,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 16, 20, 12)
         layout.setSpacing(16)
 
-        # 下载列表 + 中心 Logo（无任务时显示）
         self._list_container = QWidget()
         list_layout = QVBoxLayout(self._list_container)
         list_layout.setContentsMargins(0, 0, 0, 0)
@@ -148,10 +146,6 @@ class MainWindow(QMainWindow):
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path)).scaledToHeight(300, Qt.TransformationMode.SmoothTransformation)
             self._center_logo.setPixmap(pixmap)
-            self._center_logo.setStyleSheet("padding: 40px;")
-        else:
-            self._center_logo.setText("Physalis")
-            self._center_logo.setStyleSheet("font-size: 22px; font-weight: 700; color: #c4b5fd; padding: 40px;")
         self._center_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         list_layout.addWidget(self._center_logo)
 
@@ -161,15 +155,16 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._list_container, 1)
 
-        # 状态栏（按钮靠左，统计居中）
+        # ── Status Bar & Bottom Tools ──
         self._statusbar = QStatusBar()
         self.setStatusBar(self._statusbar)
+        self._statusbar.setSizeGripEnabled(False)
+        self._statusbar.setStyleSheet("QStatusBar::item { border: none; }")
 
         status_widget = QWidget()
-        status_widget.setStyleSheet("background: transparent;")
         status_layout = QHBoxLayout(status_widget)
-        status_layout.setContentsMargins(4, 0, 4, 0)
-        status_layout.setSpacing(6)
+        status_layout.setContentsMargins(10, 0, 10, 0)
+        status_layout.setSpacing(12)
 
         self._browser_btn = QPushButton()
         self._browser_btn.setFixedSize(28, 28)
@@ -177,11 +172,8 @@ class MainWindow(QMainWindow):
         self._browser_btn.setToolTip("打开浏览器")
         self._browser_btn.setIcon(_make_browser_icon())
         self._browser_btn.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
-        self._browser_btn.setProperty("class", "iconBtn")
-        self._browser_btn.setStyleSheet(
-            "QPushButton { background: transparent; border-radius: 6px; }"
-            "QPushButton:hover { background: rgba(139,92,246,0.2); }"
-        )
+        self._browser_btn.setStyleSheet("QPushButton { background: transparent; border-radius: 6px; } QPushButton:hover { background: rgba(139,92,246,0.2); }")
+        self._browser_btn.clicked.connect(self._open_browser)
         status_layout.addWidget(self._browser_btn)
 
         self._paste_btn = QPushButton()
@@ -190,11 +182,8 @@ class MainWindow(QMainWindow):
         self._paste_btn.setToolTip("从剪贴板添加")
         self._paste_btn.setIcon(_make_paste_icon())
         self._paste_btn.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
-        self._paste_btn.setProperty("class", "iconBtn")
-        self._paste_btn.setStyleSheet(
-            "QPushButton { background: transparent; border-radius: 6px; }"
-            "QPushButton:hover { background: rgba(139,92,246,0.2); }"
-        )
+        self._paste_btn.setStyleSheet("QPushButton { background: transparent; border-radius: 6px; } QPushButton:hover { background: rgba(139,92,246,0.2); }")
+        self._paste_btn.clicked.connect(self._on_paste_clicked)
         status_layout.addWidget(self._paste_btn)
 
         self._clear_done_btn = QPushButton()
@@ -204,185 +193,213 @@ class MainWindow(QMainWindow):
         self._clear_done_btn.setVisible(False)
         self._clear_done_btn.setIcon(_make_clear_icon())
         self._clear_done_btn.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
-        self._clear_done_btn.setProperty("class", "iconBtn")
-        self._clear_done_btn.setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,0.06); border-radius: 6px; }"
-            "QPushButton:hover { background: rgba(239,68,68,0.15); }"
-        )
+        self._clear_done_btn.setStyleSheet("QPushButton { background: rgba(255,255,255,0.06); border-radius: 6px; } QPushButton:hover { background: rgba(239,68,68,0.15); }")
         self._clear_done_btn.clicked.connect(self._on_clear_completed)
         status_layout.addWidget(self._clear_done_btn)
 
+        self._msg_label = QLabel()
+        self._msg_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px; margin-left: 8px;")
+        status_layout.addWidget(self._msg_label)
+
         status_layout.addStretch()
-        self._stats_label = QLabel("就绪")
-        self._stats_label.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 12px; padding: 0 8px;")
+
+        self._stats_label = QLabel("")
+        self._stats_label.setStyleSheet("color: rgba(255,255,255,0.3); font-size: 11px; margin-right: 12px;")
         status_layout.addWidget(self._stats_label)
-        status_layout.addStretch()
 
         self._statusbar.addWidget(status_widget, 1)
 
         self._setup_menu()
         self._setup_context_menu()
 
+    def show_msg(self, text: str, timeout: int = 5000):
+        """Display a message in the custom status label."""
+        self._msg_label.setText(text)
+        if timeout > 0:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(timeout, lambda: self._msg_label.setText("") if self._msg_label.text() == text else None)
+
     def _setup_menu(self):
-        menu_bar = self.menuBar()
-
-        file_menu = menu_bar.addMenu("文件")
-        settings_action = QAction("设置", self)
-        settings_action.triggered.connect(self._open_settings)
-        file_menu.addAction(settings_action)
+        mb = self.menuBar()
+        file_menu = mb.addMenu("文件")
+        settings_act = QAction("设置", self)
+        settings_act.triggered.connect(self._open_settings)
+        file_menu.addAction(settings_act)
         file_menu.addSeparator()
-        quit_action = QAction("退出", self)
-        quit_action.triggered.connect(self.close)
-        file_menu.addAction(quit_action)
+        quit_act = QAction("退出", self)
+        quit_act.triggered.connect(self.close)
+        file_menu.addAction(quit_act)
 
-        tools_menu = menu_bar.addMenu("工具")
-        self._cookie_manager_action = QAction("Cookie 管理", self)
-        self._cookie_manager_action.triggered.connect(self._open_cookie_manager)
-        tools_menu.addAction(self._cookie_manager_action)
-        self._clear_cookies_action = QAction("清除浏览器 Cookie", self)
-        self._clear_cookies_action.triggered.connect(self._clear_browser_cookies)
-        tools_menu.addAction(self._clear_cookies_action)
-
-        help_menu = menu_bar.addMenu("帮助")
-        about_action = QAction("关于", self)
-        about_action.triggered.connect(self._show_about)
-        help_menu.addAction(about_action)
+        browser_menu = mb.addMenu("浏览器")
+        open_act = QAction("打开浏览器", self)
+        open_act.triggered.connect(self._open_browser)
+        browser_menu.addAction(open_act)
+        cookie_act = QAction("管理 Cookie", self)
+        cookie_act.triggered.connect(self._open_cookie_manager)
+        browser_menu.addAction(cookie_act)
+        clear_cookie_act = QAction("清除所有 Cookie", self)
+        clear_cookie_act.triggered.connect(self._clear_browser_cookies)
+        browser_menu.addAction(clear_cookie_act)
 
     def _setup_context_menu(self):
-        self._list_container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._list_container.customContextMenuRequested.connect(self._show_context_menu)
+        self._download_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._download_list.customContextMenuRequested.connect(self._on_context_menu)
 
-    def _show_context_menu(self, pos):
+    def _on_context_menu(self, pos):
+        item = self._download_list.item_at(pos)
         menu = QMenu(self)
-        paste_action = QAction("粘贴并解析", self)
-        paste_action.triggered.connect(self._on_paste_clicked)
-        menu.addAction(paste_action)
-        menu.exec(self._list_container.mapToGlobal(pos))
+        
+        if item:
+            # 1. Right click on a task item
+            task = item._current_task
+            open_act = QAction("打开文件位置", self)
+            open_act.triggered.connect(lambda: self._open_file_location(task.output_path))
+            menu.addAction(open_act)
+            remove_act = QAction("删除任务", self)
+            remove_act.triggered.connect(lambda: self._on_remove_task(task.id))
+            menu.addAction(remove_act)
+        else:
+            # 2. Right click on empty area
+            paste_act = QAction("从剪贴板添加链接", self)
+            paste_act.triggered.connect(self._on_paste_clicked)
+            menu.addAction(paste_act)
+            
+        menu.exec(self._download_list.mapToGlobal(pos))
+
+    def _open_file_location(self, path: str):
+        if not path or not Path(path).exists():
+            self.show_msg("文件不存在")
+            return
+        import subprocess
+        import sys
+        if sys.platform == "darwin": subprocess.run(["open", "-R", path])
+        elif sys.platform == "win32": subprocess.run(["explorer", "/select,", os.path.normpath(path)])
 
     def _connect_signals(self):
-        self._paste_btn.clicked.connect(self._on_paste_clicked)
-
         self._downloader.task_progress.connect(self._on_task_progress)
         self._downloader.task_completed.connect(self._on_task_completed)
         self._downloader.task_failed.connect(self._on_task_failed)
         self._downloader.task_cancelled.connect(self._on_task_cancelled)
-
         self._downloader.probe_finished.connect(self._on_probe_finished)
         self._downloader.probe_failed.connect(self._on_probe_failed)
-
         self._download_list.cancel_requested.connect(self._downloader.cancel_task)
         self._download_list.retry_requested.connect(self._on_retry_task)
         self._download_list.remove_requested.connect(self._on_remove_task)
 
-        self._browser_btn.clicked.connect(self._open_browser)
+    def _on_task_progress(self, task):
+        self._download_list.update_task(task)
+        self._update_stats()
 
-    def _restore_history(self):
-        """Restore finished download tasks from previous session."""
-        tasks = self._downloader.load_history()
-        if not tasks:
-            return
-        for task in tasks:
-            self._download_list.add_task(task)
-            self._downloader._tasks[task.id] = task
-            # Try to restore thumbnails for old tasks
-            self._extract_task_thumbnail(task)
-
-        self._center_logo.setVisible(False)
-        self._download_list.setVisible(True)
+    def _on_task_completed(self, task):
+        self._download_list.update_task(task)
         self._update_stats()
         self._update_clear_done_btn()
-        self._statusbar.showMessage(f"已恢复 {len(tasks)} 个历史任务", 3000)
+        self.show_msg(f"下载完成: {task.title or task.id}")
 
+    def _on_task_failed(self, task):
+        self._download_list.update_task(task)
+        self._update_stats()
+        self._update_clear_done_btn()
+        self.show_msg(f"下载失败: {task.title or task.id}")
 
-    def _on_paste_clicked(self):
-        from PyQt6.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
-        url = clipboard.text().strip()
-        if not url:
-            self._statusbar.showMessage("剪贴板为空")
-            return
-        if not _is_valid_url(url):
-            self._statusbar.showMessage(f"不支持的链接: {url[:60]}")
-            return
-        self._start_probe(url)
-
-    def _start_probe(self, url: str):
-        self._paste_btn.setEnabled(False)
-        self._statusbar.showMessage("正在解析...")
-        self._downloader.probe_url(url)
+    def _on_task_cancelled(self, task):
+        self._download_list.update_task(task)
+        self._update_stats()
+        self._update_clear_done_btn()
 
     def _on_probe_finished(self, videos):
         self._paste_btn.setEnabled(True)
-
         if len(videos) == 1:
-            self._statusbar.showMessage(f"发现 1 个视频: {videos[0].title or videos[0].id}")
             self._start_download(videos[0].url, videos[0].title, videos[0].thumbnail)
         else:
-            self._statusbar.showMessage(f"发现 {len(videos)} 个视频，请选择要下载的")
             dialog = VideoSelectDialog(videos, self)
             if dialog.exec() == VideoSelectDialog.DialogCode.Accepted:
-                selected = dialog.selected_videos
-                for v in selected:
-                    self._start_download(v.url, v.title, v.thumbnail)
-                self._statusbar.showMessage(f"已添加 {len(selected)} 个下载任务")
-            else:
-                self._statusbar.showMessage("已取消")
+                for v in dialog.selected_videos: self._start_download(v.url, v.title, v.thumbnail)
 
-    def _on_probe_failed(self, error: str):
+    def _on_probe_failed(self, error):
         self._paste_btn.setEnabled(True)
-        self._statusbar.showMessage(f"解析失败: {error[:80]}")
+        self.show_msg(f"解析失败: {error[:80]}")
 
-    def _start_download(self, url: str, title: str = "", thumbnail: str = ""):
-        task = DownloadTask(url=url, title=title, thumbnail=thumbnail)
+    def _start_download(self, url, title, thumb):
+        from core.task import DownloadTask
+        task = DownloadTask(url=url, title=title, thumbnail=thumb)
         self._download_list.add_task(task)
         self._downloader.add_task(task)
-
-        # 有任务后隐藏中心 Logo，显示列表
         self._center_logo.setVisible(False)
         self._download_list.setVisible(True)
         self._update_stats()
+        self._extract_task_thumbnail(task)
 
-    def _on_task_progress(self, task: DownloadTask):
-        self._download_list.update_task(task)
+    def _on_sniffed_download(self, task):
+        existing_titles = [t.title for t in self._downloader.tasks]
+        if task.title in existing_titles:
+            task.title = f"{task.title}_{datetime.now().strftime('%H%M%S')}"
+        self._download_list.add_task(task)
+        self._downloader.add_task(task)
+        self._center_logo.setVisible(False)
+        self._download_list.setVisible(True)
+        self._update_stats()
+        self.show_msg(f"已添加下载: {task.title}")
+        self._extract_task_thumbnail(task)
 
-    def _on_task_completed(self, task: DownloadTask):
-        self._download_list.update_task(task)
+    def _extract_task_thumbnail(self, task):
+        from shutil import which
+        from core.config import _config_dir
+        
+        # 1. Check if local cache already exists
+        thumb_dir = _config_dir() / "thumbnails"
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        
+        cache_path = task.thumbnail_local or str(thumb_dir / f"{task.id}.jpg")
+        if Path(cache_path).exists():
+            pix = QPixmap(cache_path)
+            if not pix.isNull():
+                self._download_list.update_thumbnail(task.id, pix)
+                task.thumbnail_local = cache_path
+                return
+
+        # 2. Extract via FFmpeg if no cache
+        ffmpeg = which("ffmpeg")
+        if not ffmpeg: return
+        p = QProcess(self)
+        p.start(ffmpeg, ["-ss", "00:00:01", "-i", task.url, "-vframes", "1", "-q:v", "4", "-f", "image2", "pipe:1"])
+        def done():
+            data = p.readAllStandardOutput().data()
+            if data:
+                pix = QPixmap()
+                if pix.loadFromData(data): 
+                    self._download_list.update_thumbnail(task.id, pix)
+                    # 3. Save to local cache for future use
+                    pix.save(cache_path, "JPG")
+                    task.thumbnail_local = cache_path
+            p.deleteLater()
+        p.finished.connect(done)
+
+    def _restore_history(self):
+        tasks = self._downloader.load_history()
+        if not tasks: return
+        for task in tasks:
+            self._download_list.add_task(task)
+            self._downloader._tasks[task.id] = task
+            self._extract_task_thumbnail(task)
+        self._center_logo.setVisible(False)
+        self._download_list.setVisible(True)
         self._update_stats()
         self._update_clear_done_btn()
-        self._statusbar.showMessage(f"下载完成: {task.title or '视频'}", 5000)
+        self.show_msg(f"已恢复 {len(tasks)} 个历史任务")
 
-    def _on_task_failed(self, task: DownloadTask):
-        self._download_list.update_task(task)
-        self._update_stats()
-        self._update_clear_done_btn()
-
-    def _on_task_cancelled(self, task: DownloadTask):
-        self._download_list.update_task(task)
-        self._update_stats()
-        self._update_clear_done_btn()
-
-    def _on_retry_task(self, task_id: str):
-        task = self._downloader.get_task(task_id)
-        if task is None:
-            return
-        # Reset to pending state
+    def _on_retry_task(self, tid):
+        task = self._downloader.get_task(tid)
+        if not task: return
         task.status = TaskStatus.PENDING
         task.progress = 0.0
-        task.error = ""
-        task.speed = ""
-        task.eta = ""
-        task.size_total = ""
-        task.size_downloaded = ""
-        # Re-add to list and downloader
         self._download_list.update_task(task)
         self._downloader.add_task(task)
         self._update_stats()
-        self._statusbar.showMessage(f"已重新添加下载: {task.title or task.url[:40]}")
 
-    def _on_remove_task(self, task_id: str):
-        self._download_list.remove_task(task_id)
-        self._downloader.remove_task(task_id)
-        # If list is empty, restore center logo
+    def _on_remove_task(self, tid):
+        self._download_list.remove_task(tid)
+        self._downloader.remove_task(tid)
         if not self._download_list._tasks:
             self._center_logo.setVisible(True)
             self._download_list.setVisible(False)
@@ -397,161 +414,63 @@ class MainWindow(QMainWindow):
             self._download_list.setVisible(False)
         self._update_stats()
         self._update_clear_done_btn()
-        self._statusbar.showMessage("已清除所有已结束的任务", 3000)
+        self.show_msg("已清除所有已结束的任务")
 
     def _update_clear_done_btn(self):
-        """Show/hide the clear-completed button based on whether any tasks are done."""
-        any_done = any(
-            t.is_finished
-            for t in self._download_list._tasks.values()
-        )
+        any_done = any(t.is_finished for t in self._download_list._tasks.values())
         self._clear_done_btn.setVisible(any_done)
 
     def _update_stats(self):
-        """Update the permanent status bar task statistics."""
         tasks = self._download_list._tasks.values()
         total = len(tasks)
-        if total == 0:
-            self._stats_label.setText("就绪")
-            return
         active = sum(1 for t in tasks if t.is_active)
-        completed = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
-        failed = sum(1 for t in tasks if t.status == TaskStatus.FAILED)
-        parts = [f"共 {total} 个任务"]
-        if active:
-            parts.append(f"下载中 {active}")
-        if completed:
-            parts.append(f"已完成 {completed}")
-        if failed:
-            parts.append(f"失败 {failed}")
-        self._stats_label.setText(" | ".join(parts))
+        done = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
+        self._stats_label.setText(f"总计: {total} | 下载中: {active} | 已完成: {done}")
+
+    def _on_paste_clicked(self):
+        from PyQt6.QtWidgets import QApplication
+        url = QApplication.clipboard().text().strip()
+        if not url: self.show_msg("剪贴板为空")
+        elif not _is_valid_url(url): self.show_msg(f"无效链接: {url[:40]}")
+        else:
+            self._paste_btn.setEnabled(False)
+            self.show_msg("正在解析...")
+            self._downloader.probe_url(url)
 
     def _open_browser(self):
-        # Guard against the wrapped C/C++ object having been deleted by Qt.
-        if self._browser_window is not None:
-            try:
-                visible = self._browser_window.isVisible()
-            except RuntimeError:
-                self._browser_window = None
-                visible = False
-
-            if visible:
+        if self._browser_window and not self._is_bw_destroyed():
+            if self._browser_window.isVisible():
                 self._browser_window.raise_()
                 self._browser_window.activateWindow()
                 return
-
-            # Reuse existing hidden window rather than creating a new profile,
-            # which can destabilize QtWebEngine on macOS.
             self._browser_window.reset()
             self._browser_window.show()
-            self._browser_window.raise_()
-            self._browser_window.activateWindow()
             return
-
         self._browser_window = BrowserWindow(self)
         self._browser_window.download_requested.connect(self._on_sniffed_download)
         self._browser_window.show()
 
-    def _on_sniffed_download(self, task: DownloadTask):
-        # Prevent title duplication by adding a timestamp if needed
-        existing_titles = [t.title for t in self._downloader.tasks]
-        if task.title in existing_titles:
-            from datetime import datetime
-            timestamp = datetime.now().strftime("_%H%M%S")
-            task.title = f"{task.title}{timestamp}"
-
-        self._download_list.add_task(task)
-        self._downloader.add_task(task)
-        self._center_logo.setVisible(False)
-        self._download_list.setVisible(True)
-        self._update_stats()
-        self._statusbar.showMessage(f"已添加下载: {task.url[:60]}")
-        
-        # Priority: Extract frame for main UI background
-        self._extract_task_thumbnail(task)
-
-    def _extract_task_thumbnail(self, task: DownloadTask):
-        """Use FFmpeg to extract a background frame for the main list item."""
-        from PyQt6.QtCore import QProcess
-        from PyQt6.QtGui import QPixmap
-        import shutil
-        
-        ffmpeg_path = shutil.which("ffmpeg")
-        if not ffmpeg_path:
-            return
-
-        process = QProcess(self)
-        # Low quality (q:v 4) is enough for subtle background
-        args = ["-ss", "00:00:01", "-i", task.url, "-vframes", "1", "-q:v", "4", "-f", "image2", "pipe:1"]
-        process.start(ffmpeg_path, args)
-        
-        def on_finished():
-            img_data = process.readAllStandardOutput().data()
-            if img_data:
-                pixmap = QPixmap()
-                if pixmap.loadFromData(img_data):
-                    self._download_list.update_thumbnail(task.id, pixmap)
-            process.deleteLater()
-            
-        process.finished.connect(on_finished)
+    def _is_bw_destroyed(self):
+        try: self._browser_window.isVisible(); return False
+        except RuntimeError: return True
 
     def _open_cookie_manager(self):
-        bw = self._browser_window
-        if bw is None:
-            self._statusbar.showMessage("请先打开浏览器")
-            return
-        try:
-            if not bw.isVisible():
-                self._statusbar.showMessage("请先打开浏览器")
-                return
-        except RuntimeError:
-            self._browser_window = None
-            self._statusbar.showMessage("浏览器已关闭，请重新打开")
-            return
-
-        dialog = CookieManagerDialog(bw._cookie_manager, self)
-        dialog.exec()
+        if not self._browser_window or self._is_bw_destroyed(): self.show_msg("请先打开浏览器")
+        else: CookieManagerDialog(self._browser_window._cookie_manager, self).exec()
 
     def _clear_browser_cookies(self):
-        bw = self._browser_window
-        if bw is None:
-            self._statusbar.showMessage("浏览器未打开")
-            return
-        try:
-            if not bw.isVisible():
-                self._statusbar.showMessage("浏览器未打开")
-                return
-        except RuntimeError:
-            self._browser_window = None
-            self._statusbar.showMessage("浏览器已关闭")
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "清除 Cookie",
-            "确定要清除浏览器中的所有 Cookie 吗？\n此操作会使您退出已登录的网站。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            bw._cookie_manager.clear_all()
-            bw._update_login_indicator()
-            self._statusbar.showMessage("浏览器 Cookie 已清除")
-
-    def closeEvent(self, event):
-        """Save download history and shut down browser before quitting."""
-        self._downloader.save_history()
-        if self._browser_window is not None:
-            try:
-                self._browser_window.shutdown()
-            except RuntimeError:
-                pass
-        event.accept()
+        if not self._browser_window or self._is_bw_destroyed(): self.show_msg("浏览器未打开")
+        else:
+            if QMessageBox.question(self, "清除 Cookie", "确定要清除所有 Cookie 吗？", QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+                self._browser_window._cookie_manager.clear_all()
+                self._browser_window._update_login_indicator()
+                self.show_msg("Cookie 已清除")
 
     def _open_settings(self):
         from ui.settings_dialog import SettingsDialog
-        dialog = SettingsDialog(self)
-        dialog.exec()
+        SettingsDialog(self).exec()
 
-    def _show_about(self):
-        QMessageBox.about(self, "关于 Physalis", "Physalis v0.1.0\n跨平台视频下载工具")
+    def closeEvent(self, e):
+        self._downloader.save_history()
+        if self._browser_window and not self._is_bw_destroyed(): self._browser_window.shutdown()
+        e.accept()

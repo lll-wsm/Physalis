@@ -34,9 +34,18 @@ from ui.sniff_panel import (
 from app import BROWSER_STYLE_SHEET
 
 
-def _make_nav_back_icon() -> QIcon:
-    pixmap = QPixmap(24, 24)
+def _create_hq_pixmap(size: int) -> QPixmap:
+    """Create a High-DPI aware transparent pixmap."""
+    dpr = 2.0 
+    pixmap = QPixmap(int(size * dpr), int(size * dpr))
     pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap.setDevicePixelRatio(dpr)
+    return pixmap
+
+
+def _make_nav_back_icon() -> QIcon:
+    size = 24
+    pixmap = _create_hq_pixmap(size)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
@@ -50,8 +59,8 @@ def _make_nav_back_icon() -> QIcon:
 
 
 def _make_nav_forward_icon() -> QIcon:
-    pixmap = QPixmap(24, 24)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    size = 24
+    pixmap = _create_hq_pixmap(size)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
@@ -65,8 +74,8 @@ def _make_nav_forward_icon() -> QIcon:
 
 
 def _make_nav_reload_icon() -> QIcon:
-    pixmap = QPixmap(24, 24)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    size = 24
+    pixmap = _create_hq_pixmap(size)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()

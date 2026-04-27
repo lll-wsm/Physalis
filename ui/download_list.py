@@ -332,3 +332,12 @@ class DownloadListWidget(QWidget):
         widget = self._item_widgets.get(task_id)
         if widget:
             widget.set_thumbnail(pixmap)
+
+    def item_at(self, pos) -> DownloadItemWidget | None:
+        """Find the task widget at a specific local position."""
+        child = self._list_widget.childAt(self._list_widget.mapFrom(self, pos))
+        while child:
+            if isinstance(child, DownloadItemWidget):
+                return child
+            child = child.parentWidget()
+        return None

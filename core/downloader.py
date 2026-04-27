@@ -419,6 +419,7 @@ class Downloader(QObject):
                 "created_at": t.created_at,
                 "completed_at": t.completed_at,
                 "output_path": t.output_path,
+                "thumbnail_local": t.thumbnail_local,
             })
         # Keep at most the last 200 entries
         if len(finished) > 200:
@@ -458,6 +459,7 @@ class Downloader(QObject):
                     created_at=item.get("created_at", 0.0),
                     completed_at=item.get("completed_at", 0.0),
                     output_path=item.get("output_path", ""),
+                    thumbnail_local=item.get("thumbnail_local", ""),
                 )
                 tasks.append(task)
             except Exception:

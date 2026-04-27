@@ -31,6 +31,7 @@ class DownloadTask:
     cookies_file: str = ""
     referer: str = ""
     thumbnail: str = ""
+    thumbnail_local: str = ""  # Path to locally cached thumbnail image
     format_hint: str = ""   # "m3u8" / "mp4" / "webm" / "flv" / "dash" / etc.
 
     @property

@@ -38,10 +38,20 @@ _PANEL_W = 260
 _ICON_SZ = 16
 
 
+def _create_hq_pixmap(size: int) -> QPixmap:
+    """Create a High-DPI aware transparent pixmap."""
+    from PyQt6.QtWidgets import QApplication
+    # Use 2.0 as a standard multiplier for Retina/High-DPI
+    dpr = 2.0 
+    pixmap = QPixmap(int(size * dpr), int(size * dpr))
+    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap.setDevicePixelRatio(dpr)
+    return pixmap
+
+
 def _make_download_icon() -> QIcon:
     """Downward arrow."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
@@ -57,8 +67,7 @@ def _make_download_icon() -> QIcon:
 
 def _make_info_icon() -> QIcon:
     """Circled 'i'."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
@@ -74,8 +83,7 @@ def _make_info_icon() -> QIcon:
 
 def _make_cookie_icon() -> QIcon:
     """Simplified cookie icon."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setPen(Qt.PenStyle.NoPen)
@@ -91,8 +99,7 @@ def _make_cookie_icon() -> QIcon:
 
 def _make_rule_icon() -> QIcon:
     """List/Rules icon."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
@@ -108,8 +115,7 @@ def _make_rule_icon() -> QIcon:
 
 def _make_panel_toggle_icon(active=True) -> QIcon:
     """Sidebar layout icon."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
@@ -127,8 +133,7 @@ def _make_panel_toggle_icon(active=True) -> QIcon:
 
 def _make_list_view_icon() -> QIcon:
     """Standard list icon."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     pen = p.pen()
     pen.setColor(QColor("#c4b5fd"))
@@ -142,8 +147,7 @@ def _make_list_view_icon() -> QIcon:
 
 def _make_grid_view_icon() -> QIcon:
     """2x2 grid icon."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setBrush(QColor("#c4b5fd"))
     p.setPen(Qt.PenStyle.NoPen)
@@ -156,8 +160,7 @@ def _make_grid_view_icon() -> QIcon:
 
 def _make_close_icon() -> QIcon:
     """Simple 'X' icon."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
@@ -172,8 +175,7 @@ def _make_close_icon() -> QIcon:
 
 def _make_download_all_icon() -> QIcon:
     """Download all icon: Box with arrow."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
@@ -192,8 +194,7 @@ def _make_download_all_icon() -> QIcon:
 
 def _make_trash_icon() -> QIcon:
     """Trash/Clear icon."""
-    pixmap = QPixmap(_ICON_SZ, _ICON_SZ)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap = _create_hq_pixmap(_ICON_SZ)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = p.pen()
