@@ -253,6 +253,15 @@ BROWSER_STYLE_SHEET = """
 def create_app() -> QApplication:
     import os
     from pathlib import Path
+    
+    # Fix PATH for macOS bundled app (ensure ffmpeg/yt-dlp are found)
+    if sys.platform == "darwin":
+        extra_paths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+        current_path = os.environ.get("PATH", "")
+        for p in extra_paths:
+            if p not in current_path:
+                current_path = f"{p}:{current_path}"
+        os.environ["PATH"] = current_path
 
     # Set Qt WebEngine path for packaged app
     if getattr(sys, 'frozen', False):

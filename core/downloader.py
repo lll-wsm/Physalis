@@ -26,6 +26,13 @@ def _find_ytdlp() -> str:
     path = shutil.which("yt-dlp")
     if path:
         return path
+    
+    import sys
+    if sys.platform == "darwin":
+        for p in ["/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp"]:
+            if os.path.exists(p):
+                return p
+
     local = Path(__file__).parent.parent / "bin" / "yt-dlp"
     if local.exists():
         return str(local)
@@ -49,6 +56,8 @@ class Downloader(QObject):
     _SPEED_RE = re.compile(r"at\s+([\d.]+\w+/s)")
     _ETA_RE = re.compile(r"ETA\s+(\d+:\d+)")
     _ERROR_RE = re.compile(r"ERROR:\s*(.+)")
+    _DEST_RE = re.compile(r"\[download\]\s+Destination:\s*(.+)")
+    _MERGE_RE = re.compile(r"\[Merger\]\s+Merging\s+formats\s+into\s+\"(.+)\"")
     
     # ffmpeg progress
     _FFMPEG_PROGRESS_RE = re.compile(
@@ -192,6 +201,15 @@ class Downloader(QObject):
                 size_total=m_size.group(1) if m_size else ""
             )
             self.task_progress.emit(task)
+
+        # Update output path from Destination or Merger
+        m_dest = self._DEST_RE.search(line)
+        if m_dest:
+            task.output_path = m_dest.group(1).strip()
+        
+        m_merge = self._MERGE_RE.search(line)
+        if m_merge:
+            task.output_path = m_merge.group(1).strip()
 
     def _on_stderr(self, task_id: str, process: QProcess):
         data = process.readAllStandardError().data().decode("utf-8", errors="replace")

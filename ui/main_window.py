@@ -116,6 +116,28 @@ def _is_valid_url(text: str) -> bool:
     return bool(_URL_RE.match(text.strip()))
 
 
+def _make_folder_icon() -> QIcon:
+    pixmap = _create_hq_pixmap(ICON_SIZE)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = p.pen()
+    pen.setColor(QColor("#c4b5fd"))
+    pen.setWidthF(1.5)
+    p.setPen(pen)
+    # Folder shape
+    path = QPainterPath()
+    path.moveTo(2, 5)
+    path.lineTo(2, 17)
+    path.lineTo(18, 17)
+    path.lineTo(18, 7)
+    path.lineTo(10, 7)
+    path.lineTo(8, 5)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.end()
+    return QIcon(pixmap)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -252,36 +274,61 @@ class MainWindow(QMainWindow):
         self._list_container.customContextMenuRequested.connect(self._on_context_menu)
 
     def _on_context_menu(self, pos):
-        # Map position to download_list coordinate system to find items
-        list_pos = self._download_list.mapFrom(self._list_container, pos)
-        item = self._download_list.item_at(list_pos)
+        item = self._download_list.item_at(pos)
         menu = QMenu(self)
+        # Apply menu styling
+        menu.setWindowOpacity(0.98)
         
         if item:
             # 1. Right click on a task item
             task = item._current_task
-            open_act = QAction("打开文件位置", self)
-            open_act.triggered.connect(lambda: self._open_file_location(task.output_path))
+            
+            open_act = QAction(_make_folder_icon(), "打开文件位置", self)
+            # Allow opening if we have any path, or at least the download directory
+            can_open = bool(task.output_path) or os.path.exists(self._config.download_dir)
+            open_act.setEnabled(can_open)
+            # Fallback path if output_path is not yet set
+            target_path = task.output_path or str(self._config.download_dir)
+            open_act.triggered.connect(lambda: self._open_file_location(target_path))
             menu.addAction(open_act)
-            remove_act = QAction("删除任务", self)
+            
+            menu.addSeparator()
+            
+            remove_act = QAction(_make_clear_icon(), "删除任务", self)
             remove_act.triggered.connect(lambda: self._on_remove_task(task.id))
             menu.addAction(remove_act)
         else:
             # 2. Right click on empty area (or logo area)
-            paste_act = QAction("从剪贴板添加链接", self)
+            paste_act = QAction(_make_paste_icon(), "从剪贴板添加链接", self)
             paste_act.triggered.connect(self._on_paste_clicked)
             menu.addAction(paste_act)
             
         menu.exec(self._list_container.mapToGlobal(pos))
 
     def _open_file_location(self, path: str):
-        if not path or not Path(path).exists():
-            self.show_msg("文件不存在")
+        if not path:
+            self.show_msg("路径为空")
             return
-        import subprocess
-        import sys
-        if sys.platform == "darwin": subprocess.run(["open", "-R", path])
-        elif sys.platform == "win32": subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+            
+        # Clean path: remove ANSI escape codes (often found in yt-dlp output)
+        path = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', path).strip()
+        p = Path(path)
+        
+        # If the specific file doesn't exist, try the parent directory
+        target = p if p.exists() else p.parent
+        
+        if not target.exists():
+            self.show_msg("文件或文件夹不存在")
+            return
+
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+        
+        # On macOS/Windows, QDesktopServices.openUrl with a local file URL 
+        # is the most reliable way to "reveal" or open.
+        url = QUrl.fromLocalFile(str(target.absolute()))
+        QDesktopServices.openUrl(url)
+        self.show_msg(f"已打开: {target.name}")
 
     def _connect_signals(self):
         self._downloader.task_progress.connect(self._on_task_progress)
@@ -358,6 +405,7 @@ class MainWindow(QMainWindow):
 
     def _extract_task_thumbnail(self, task):
         from shutil import which
+        import sys
         from core.config import _config_dir
         
         # 1. Check if local cache already exists
@@ -374,6 +422,12 @@ class MainWindow(QMainWindow):
 
         # 2. Extract via FFmpeg if no cache
         ffmpeg = which("ffmpeg")
+        if not ffmpeg and sys.platform == "darwin":
+            for p in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]:
+                if os.path.exists(p):
+                    ffmpeg = p
+                    break
+        
         if not ffmpeg: return
         p = QProcess(self)
         p.start(ffmpeg, ["-ss", "00:00:01", "-i", task.url, "-vframes", "1", "-q:v", "4", "-f", "image2", "pipe:1"])

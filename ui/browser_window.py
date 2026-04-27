@@ -361,8 +361,16 @@ class BrowserWindow(QMainWindow):
         """Use ffmpeg to grab a single frame from the remote URL without downloading the whole file."""
         from PyQt6.QtCore import QProcess
         import shutil
+        import sys
         
         ffmpeg_path = shutil.which("ffmpeg")
+        # macOS specialized search if shutil.which fails
+        if not ffmpeg_path and sys.platform == "darwin":
+            for p in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]:
+                if os.path.exists(p):
+                    ffmpeg_path = p
+                    break
+        
         if not ffmpeg_path:
             # Fallback to metadata probe if ffmpeg is missing
             self._probe_thumbnail_via_ytdlp(video_url)
