@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QDialog,
     QPushButton,
     QStatusBar,
     QVBoxLayout,
@@ -25,10 +26,83 @@ from core.task import DownloadTask, TaskStatus
 from ui.cookie_manager_dialog import CookieManagerDialog
 from ui.download_list import DownloadListWidget
 from ui.video_select_dialog import VideoSelectDialog
-from ui.browser_window import BrowserWindow
+from ui.browser_window import BrowserWindow, _x_popup_landing_finishes_oauth
 from app import MAIN_STYLE_SHEET
 
 ICON_SIZE = 20
+
+
+class StyledMessageBox(QDialog):
+    """A custom purple, semi-transparent, and rounded confirmation dialog."""
+    def __init__(self, title, text, parent=None):
+        super().__init__(parent, Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMinimumWidth(340)
+        self._setup_ui(title, text)
+
+    def _setup_ui(self, title, text):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        container = QWidget()
+        container.setObjectName("container")
+        container.setStyleSheet("""
+            QWidget#container {
+                background-color: #241f38;
+                border: 1px solid rgba(139,92,246,0.3);
+                border-radius: 14px;
+            }
+            QLabel#title { color: #ffffff; font-size: 15px; font-weight: 700; }
+            QLabel#text { color: rgba(255,255,255,0.7); font-size: 13px; line-height: 1.4; }
+            QPushButton { 
+                background: rgba(255,255,255,0.06); 
+                color: #e8e8ed; 
+                border-radius: 8px; 
+                padding: 8px 16px; 
+                font-weight: 600; 
+                min-width: 80px;
+            }
+            QPushButton:hover { background: rgba(255,255,255,0.12); }
+            QPushButton#okBtn { background: #8b5cf6; color: #ffffff; }
+            QPushButton#okBtn:hover { background: #7c3aed; }
+        """)
+        
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(20, 20, 20, 20)
+        c_layout.setSpacing(16)
+
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("title")
+        c_layout.addWidget(title_lbl)
+
+        text_lbl = QLabel(text)
+        text_lbl.setObjectName("text")
+        text_lbl.setWordWrap(True)
+        c_layout.addWidget(text_lbl)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.addStretch()
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        ok_btn = QPushButton("确定")
+        ok_btn.setObjectName("okBtn")
+        ok_btn.clicked.connect(self.accept)
+        btn_row.addWidget(ok_btn)
+
+        c_layout.addLayout(btn_row)
+        layout.addWidget(container)
+
+    @classmethod
+    def question(cls, parent, title, text):
+        dlg = cls(title, text, parent)
+        # Center relative to parent
+        if parent:
+            dlg.move(parent.geometry().center() - dlg.rect().center())
+        return dlg.exec() == QDialog.DialogCode.Accepted
 
 
 def _create_hq_pixmap(size: int) -> QPixmap:
@@ -307,8 +381,8 @@ class MainWindow(QMainWindow):
     def _on_context_menu(self, pos):
         item = self._download_list.item_at(pos)
         menu = QMenu(self)
-        # Apply menu styling
-        menu.setWindowOpacity(0.98)
+        menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        menu.setWindowFlags(menu.windowFlags() | Qt.WindowType.FramelessWindowHint)
         
         if item:
             # 1. Right click on a task item
@@ -500,13 +574,16 @@ class MainWindow(QMainWindow):
         self._update_stats()
 
     def _on_remove_task(self, tid):
-        self._download_list.remove_task(tid)
-        self._downloader.remove_task(tid)
-        if not self._download_list._tasks:
-            self._center_logo.setVisible(True)
-            self._download_list.setVisible(False)
-        self._update_stats()
-        self._update_clear_done_btn()
+        task = next((t for t in self._downloader.tasks if t.id == tid), None)
+        title = task.title if task else "任务"
+        if StyledMessageBox.question(self, "删除确认", f"确定要删除任务 '{title}' 吗？"):
+            self._download_list.remove_task(tid)
+            self._downloader.remove_task(tid)
+            if not self._download_list._tasks:
+                self._center_logo.setVisible(True)
+                self._download_list.setVisible(False)
+            self._update_stats()
+            self._update_clear_done_btn()
 
     def _on_clear_completed(self):
         self._download_list.clear_completed()
@@ -563,9 +640,8 @@ class MainWindow(QMainWindow):
     def _clear_browser_cookies(self):
         if not self._browser_window or self._is_bw_destroyed(): self.show_msg("浏览器未打开")
         else:
-            if QMessageBox.question(self, "清除 Cookie", "确定要清除所有 Cookie 吗？", QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+            if StyledMessageBox.question(self, "清除 Cookie", "确定要清除所有 Cookie 吗？"):
                 self._browser_window._cookie_manager.clear_all()
-                self._browser_window._update_login_indicator()
                 self.show_msg("Cookie 已清除")
 
     def _open_settings(self):

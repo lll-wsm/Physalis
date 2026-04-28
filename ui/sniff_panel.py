@@ -1,4 +1,5 @@
 from urllib.parse import urlparse
+import os
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QUrl
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
@@ -32,6 +33,10 @@ _CONTENT_TYPE_FORMAT = {
     "audio/mp4": "m4a",
     "audio/aac": "aac",
     "audio/mpeg": "mp3",
+    "image/png": "img",
+    "image/jpeg": "img",
+    "image/webp": "img",
+    "image/gif": "img",
 }
 
 _PANEL_W = 260
@@ -260,82 +265,179 @@ class ClickableLabel(QLabel):
 
 
 class _VideoDetailDialog(QDialog):
-    def __init__(self, video: SniffedVideo, parent=None):
-        super().__init__(parent)
+    """A bubble-style popup that displays resource details with a pointing arrow."""
+    def __init__(self, video: SniffedVideo, target_widget: QWidget, parent=None):
+        super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Popup)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._video = video
+        self._target_widget = target_widget
+        self._arrow_dir = "right"
         self._setup_ui()
+        self._position_bubble()
 
     def _setup_ui(self):
-        self.setWindowTitle("视频详情")
-        self.setMinimumSize(500, 360)
-        self.setStyleSheet("""
-            QDialog { background-color: #2d2640; color: #e8e8ed; }
-            QLabel { color: #c4b5fd; font-size: 12px; font-weight: 600; }
-            QTextEdit { background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #ddd6fe; font-size: 12px; padding: 6px; }
+        self.setMinimumWidth(380)
+        self.setMaximumWidth(520)
+        
+        # Main container with margins for the arrow
+        self._main_layout = QVBoxLayout(self)
+        self._main_layout.setContentsMargins(15, 10, 15, 10)
+        
+        # Inner content widget (the actual bubble body)
+        self._content = QWidget()
+        self._content.setObjectName("bubbleBody")
+        self._content.setStyleSheet("""
+            #bubbleBody { 
+                background-color: #1a1625; /* Very dark purple */
+                border: 1px solid rgba(139,92,246,0.5);
+                border-radius: 12px; 
+            }
+            QLabel#header { color: #ffffff; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+            QLabel#label { color: #c4b5fd; font-size: 11px; font-weight: 700; margin-top: 8px; }
+            QLabel#value { 
+                color: #ddd6fe; 
+                font-size: 11px; 
+                line-height: 1.4;
+            }
         """)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 16)
-        layout.setSpacing(10)
-        title = QLabel("视频详情")
-        title.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
-        layout.addWidget(title)
+        
+        content_layout = QVBoxLayout(self._content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(0)
+
+        header = QLabel("资源详情")
+        header.setObjectName("header")
+        content_layout.addWidget(header)
+
         v = self._video
-        layout.addWidget(QLabel("URL"))
-        url_edit = QTextEdit()
-        url_edit.setPlainText(v.url)
-        url_edit.setFixedHeight(56)
-        url_edit.setReadOnly(True)
-        layout.addWidget(url_edit)
-        info_layout = QHBoxLayout()
-        info_layout.setSpacing(16)
-        left = QVBoxLayout()
-        left.setSpacing(4)
-        left.addWidget(QLabel("类型"))
-        type_lbl = QLabel(f"  {v.format_hint} ({v.content_type or '未知'})")
-        type_lbl.setStyleSheet("color: #ddd6fe; font-size: 13px;")
-        left.addWidget(type_lbl)
-        if v.content_length > 0:
-            left.addWidget(QLabel("大小"))
-            size_lbl = QLabel(f"  {_format_size(v.content_length)}")
-            size_lbl.setStyleSheet("color: #ddd6fe; font-size: 13px;")
-            left.addWidget(size_lbl)
-        info_layout.addLayout(left)
-        right = QVBoxLayout()
-        right.setSpacing(4)
+        content_layout.addWidget(self._create_field("完整 URL", v.url, wrap=True))
+        
+        size_str = _format_size(v.content_length) if v.content_length > 0 else "未知大小"
+        content_layout.addWidget(self._create_field("格式类型 / 资源大小", f"{v.format_hint.upper()} ({v.content_type or '未知'}) | {size_str}"))
+        
         if v.page_url:
-            right.addWidget(QLabel("页面 URL"))
-            page_lbl = QLabel(f"  {v.page_url}")
-            page_lbl.setStyleSheet("color: #ddd6fe; font-size: 12px;")
-            page_lbl.setWordWrap(True)
-            right.addWidget(page_lbl)
+            content_layout.addWidget(self._create_field("来源页面", v.page_url, wrap=True))
         if v.referer:
-            right.addWidget(QLabel("Referer"))
-            ref_lbl = QLabel(f"  {v.referer}")
-            ref_lbl.setStyleSheet("color: #ddd6fe; font-size: 12px;")
-            ref_lbl.setWordWrap(True)
-            right.addWidget(ref_lbl)
-        info_layout.addLayout(right)
-        layout.addLayout(info_layout)
-        layout.addStretch()
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        close_btn = QPushButton("关闭")
-        close_btn.setFixedSize(64, 30)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet("QPushButton { background: rgba(255,255,255,0.08); color: #e8e8ed; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; } QPushButton:hover { background: rgba(255,255,255,0.14); }")
-        close_btn.clicked.connect(self.accept)
-        btn_row.addWidget(close_btn)
-        layout.addLayout(btn_row)
+            content_layout.addWidget(self._create_field("Referer", v.referer, wrap=True))
+
+        self._main_layout.addWidget(self._content)
+        self.adjustSize()
+
+    def _create_field(self, label_text, value_text, wrap=False):
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(2)
+        lbl = QLabel(label_text); lbl.setObjectName("label")
+        layout.addWidget(lbl)
+        val = QLabel(value_text); val.setObjectName("value")
+        if wrap:
+            val.setWordWrap(True)
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(val)
+        return container
+
+    def _position_bubble(self):
+        """Position the bubble to the left of the target widget (info button)."""
+        global_pos = self._target_widget.mapToGlobal(self._target_widget.rect().topLeft())
+        x = global_pos.x() - self.width() - 5
+        y = global_pos.y() - (self.height() // 2) + (self._target_widget.height() // 2)
+        if x < 10:
+            x = global_pos.x() + self._target_widget.width() + 5
+            self._arrow_dir = "left"
+        else:
+            self._arrow_dir = "right"
+        self.move(x, y)
+
+    def paintEvent(self, event):
+        """Draw the pointing arrow."""
+        from PyQt6.QtGui import QPainter, QColor, QPainterPath
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.WindingFill)
+        arrow_size = 10
+        if self._arrow_dir == "right":
+            x = self.width() - 15
+            y = self.height() // 2
+            path.moveTo(x, y - arrow_size)
+            path.lineTo(x + arrow_size, y)
+            path.lineTo(x, y + arrow_size)
+        else:
+            x = 15
+            y = self.height() // 2
+            path.moveTo(x, y - arrow_size)
+            path.lineTo(x - arrow_size, y)
+            path.lineTo(x, y + arrow_size)
+        painter.setBrush(QColor("#1a1625")) # Must match bubbleBody background
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPath(path)
+        painter.end()
 
     @staticmethod
-    def show_for(video: SniffedVideo, parent=None):
-        dialog = _VideoDetailDialog(video, parent)
-        dialog.exec()
+    def show_for(video: SniffedVideo, target_widget: QWidget):
+        dialog = _VideoDetailDialog(video, target_widget, target_widget.window())
+        dialog.show()
+
+    def _position_bubble(self):
+        """Position the bubble to the left of the target widget (info button)."""
+        # Map target widget's top-left to global coordinates
+        global_pos = self._target_widget.mapToGlobal(self._target_widget.rect().topLeft())
+        
+        # Place bubble to the left of the button, centered vertically relative to it
+        x = global_pos.x() - self.width() - 5
+        y = global_pos.y() - (self.height() // 2) + (self._target_widget.height() // 2)
+        
+        # Boundary check: ensure it doesn't go off the left edge
+        if x < 10:
+            # If no space on left, show on top/bottom or just offset
+            x = global_pos.x() + self._target_widget.width() + 5
+            self._arrow_dir = "left"
+        else:
+            self._arrow_dir = "right"
+            
+        self.move(x, y)
+
+    def paintEvent(self, event):
+        """Draw the pointing arrow."""
+        from PyQt6.QtGui import QPainter, QColor, QPainterPath
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Draw the triangle (arrow) pointing to the button
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.WindingFill)
+        
+        arrow_size = 10
+        if self._arrow_dir == "right":
+            # Arrow on the right side of the bubble
+            x = self.width() - 15
+            y = self.height() // 2
+            path.moveTo(x, y - arrow_size)
+            path.lineTo(x + arrow_size, y)
+            path.lineTo(x, y + arrow_size)
+        else:
+            # Arrow on the left side
+            x = 15
+            y = self.height() // 2
+            path.moveTo(x, y - arrow_size)
+            path.lineTo(x - arrow_size, y)
+            path.lineTo(x, y + arrow_size)
+            
+        painter.setBrush(QColor("#2d2640"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPath(path)
+        painter.end()
+
+    @staticmethod
+    def show_for(video: SniffedVideo, target_widget: QWidget):
+        dialog = _VideoDetailDialog(video, target_widget, target_widget.window())
+        dialog.show()
 
 
 class _MediaRow(QWidget):
     download_clicked = pyqtSignal(object)
-    info_clicked = pyqtSignal(object)
+    info_clicked = pyqtSignal(object, object)
 
     def __init__(self, video: SniffedVideo, parent=None):
         super().__init__(parent)
@@ -384,7 +486,7 @@ class _MediaRow(QWidget):
         self._info_btn.setIconSize(QSize(icon_sz, icon_sz))
         self._info_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._info_btn.setStyleSheet("QPushButton { background: rgba(0,0,0,0.5); border-radius: 3px; } QPushButton:hover { background: rgba(0,0,0,0.8); }")
-        self._info_btn.clicked.connect(lambda: self.info_clicked.emit(self._video))
+        self._info_btn.clicked.connect(lambda: self.info_clicked.emit(self._video, self._info_btn))
         overlay_layout.addWidget(self._info_btn, 0, Qt.AlignmentFlag.AlignBottom)
 
         self._dl_btn = QPushButton()
@@ -407,7 +509,8 @@ class _MediaRow(QWidget):
         self._name_label.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 600; background: transparent;")
         self._name_label.setMinimumWidth(10)
         self._name_label.setWordWrap(False)
-        self._name_label.setToolTip(self._video.url)
+        # Use HTML for ToolTip to enable word wrap and set max width
+        self._name_label.setToolTip(f'<div style="width: 300px; word-wrap: break-word;">{self._video.url}</div>')
         name_container.addWidget(self._name_label)
 
         meta_layout = QHBoxLayout()
@@ -471,66 +574,155 @@ class _MediaRow(QWidget):
 
 class _MediaCard(QWidget):
     download_clicked = pyqtSignal(object)
-    info_clicked = pyqtSignal(object)
+    info_clicked = pyqtSignal(object, object)
 
     def __init__(self, video: SniffedVideo, parent=None):
         super().__init__(parent)
         self._video = video
-        self.setFixedSize(112, 84)
+        self.setFixedSize(116, 90)
         self._setup_ui()
 
     def _setup_ui(self):
-        self.setStyleSheet("_MediaCard { background: rgba(255,255,255,0.04); border-radius: 6px; } _MediaCard:hover { background: rgba(255,255,255,0.09); }")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+        # 1. Base card styling: Stronger boundaries and solid feel
+        self.setStyleSheet("""
+            _MediaCard { 
+                background: #1a1625; 
+                border-radius: 10px; 
+                border: 1px solid rgba(255,255,255,0.12); /* Brighter border for better boundary */
+            }
+            _MediaCard:hover { 
+                border-color: rgba(139,92,246,0.8);
+                background: #241f38;
+            }
+        """)
+        
+        # Base layer: Thumbnail (fills the inner area)
         self._bg_label = QLabel(self)
-        self._bg_label.setFixedSize(self.size())
-        self._bg_label.lower()
-        self._bg_label.hide()
-        self._badge = QLabel(self._video.format_hint.upper())
-        self._badge.setFixedHeight(18)
-        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._badge.setStyleSheet("background-color: rgba(139,92,246,0.3); color: #ffffff; border-radius: 3px; font-size: 9px; font-weight: 800;")
-        layout.addWidget(self._badge)
+        self._bg_label.setGeometry(1, 1, 114, 88)
+        self._bg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._bg_label.setStyleSheet("border-radius: 9px; background: #000000;")
+        
+        # Overlay layer: Consistent dark backdrop to provide solid boundary
+        self._overlay = QWidget(self)
+        self._overlay.setGeometry(0, 0, 116, 90)
+        self._overlay.setStyleSheet("""
+            background-color: rgba(26, 22, 37, 0.65); /* Solid semi-transparent overlay */
+            border-radius: 10px;
+        """)
+        
+        overlay_layout = QVBoxLayout(self._overlay)
+        overlay_layout.setContentsMargins(8, 8, 8, 8)
+        overlay_layout.setSpacing(6)
+
+        # 1. Title (Top)
         self._name_label = QLabel(_uri_label(self._video.url))
-        self._name_label.setStyleSheet("color: #ffffff; font-size: 10px; font-weight: 800; background: transparent; text-shadow: 0 1px 2px rgba(0,0,0,0.8);")
-        self._name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._name_label.setWordWrap(True)
-        layout.addWidget(self._name_label, 1)
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(4)
-        btn_row.addStretch()
+        self._name_label.setStyleSheet("color: #ffffff; font-size: 10px; font-weight: 700; background: transparent;")
+        self._name_label.setWordWrap(True) # Allow two lines if needed
+        self._name_label.setMaximumHeight(28)
+        self._name_label.setToolTip(f'<div style="width: 250px; word-wrap: break-word;">{self._video.url}</div>')
+        overlay_layout.addWidget(self._name_label)
+
+        overlay_layout.addStretch()
+
+        # 2. Info & Action Row (Bottom)
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(0)
+        bottom_row.setContentsMargins(0, 0, 0, 0)
+
+        # 3D Style Badge (Oval) - Now part of the bottom row
+        self._badge = QLabel(self._video.format_hint.upper())
+        self._badge.setFixedSize(34, 16)
+        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._badge.setStyleSheet("""
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #a78bfa, stop:1 #7c3aed);
+            color: #ffffff; 
+            border-radius: 8px; 
+            font-size: 8px; 
+            font-weight: 900;
+            border-bottom: 2px solid #5b21b6;
+        """)
+        bottom_row.addWidget(self._badge)
+        bottom_row.addStretch()
+        
+        # Action Buttons
+        btn_group = QHBoxLayout()
+        btn_group.setSpacing(4)
+        
         self._dl_btn = QPushButton()
         self._dl_btn.setIcon(_make_download_icon())
-        self._dl_btn.setIconSize(QSize(_ICON_SZ, _ICON_SZ))
-        self._dl_btn.setFixedSize(22, 22)
+        self._dl_btn.setIconSize(QSize(10, 10))
+        self._dl_btn.setFixedSize(20, 20)
         self._dl_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._dl_btn.setStyleSheet("QPushButton { background: rgba(139,92,246,0.4); border: none; border-radius: 3px; } QPushButton:hover { background: rgba(139,92,246,0.6); }")
+        self._dl_btn.setStyleSheet("QPushButton { background: rgba(139,92,246,0.3); border-radius: 10px; } QPushButton:hover { background: #8b5cf6; }")
         self._dl_btn.clicked.connect(lambda: self.download_clicked.emit(self._video))
-        btn_row.addWidget(self._dl_btn)
+        btn_group.addWidget(self._dl_btn)
+        
         self._info_btn = QPushButton()
         self._info_btn.setIcon(_make_info_icon())
-        self._info_btn.setIconSize(QSize(_ICON_SZ, _ICON_SZ))
-        self._info_btn.setFixedSize(22, 22)
+        self._info_btn.setIconSize(QSize(10, 10))
+        self._info_btn.setFixedSize(20, 20)
         self._info_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._info_btn.setStyleSheet("QPushButton { background: rgba(0,0,0,0.3); border: none; border-radius: 3px; } QPushButton:hover { background: rgba(0,0,0,0.5); }")
-        self._info_btn.clicked.connect(lambda: self.info_clicked.emit(self._video))
-        btn_row.addWidget(self._info_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
+        self._info_btn.setStyleSheet("QPushButton { background: rgba(255,255,255,0.1); border-radius: 10px; } QPushButton:hover { background: rgba(255,255,255,0.2); }")
+        self._info_btn.clicked.connect(lambda: self.info_clicked.emit(self._video, self._info_btn))
+        btn_group.addWidget(self._info_btn)
+        
+        bottom_row.addLayout(btn_group)
+        overlay_layout.addLayout(bottom_row)
 
     def set_thumbnail(self, pixmap: QPixmap):
         try:
-            scaled = pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-            darkened = QPixmap(scaled.size())
-            darkened.fill(Qt.GlobalColor.transparent)
-            painter = QPainter(darkened)
-            painter.setOpacity(0.4)
-            painter.drawPixmap(0, 0, scaled)
+            # Scale and crop to fit card exactly
+            scaled = pixmap.scaled(self._bg_label.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+            rounded = QPixmap(self._bg_label.size())
+            rounded.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(rounded)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # Clip to the background label's rounded corners
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, self._bg_label.width(), self._bg_label.height(), 9, 9)
+            painter.setClipPath(path)
+            
+            x = (self._bg_label.width() - scaled.width()) // 2
+            y = (self._bg_label.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+            
+            # Subtle vignetting
+            painter.setOpacity(0.15)
+            painter.setBrush(Qt.GlobalColor.black)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(rounded.rect())
+            
             painter.end()
-            self._bg_label.setPixmap(darkened)
-            self._bg_label.show()
+            self._bg_label.setPixmap(rounded)
+        except Exception: pass
+
+    def set_thumbnail(self, pixmap: QPixmap):
+        try:
+            # Scale and crop to fit card exactly
+            scaled = pixmap.scaled(self._bg_label.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+            rounded = QPixmap(self._bg_label.size())
+            rounded.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(rounded)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # Clip to the background label's rounded corners
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, self._bg_label.width(), self._bg_label.height(), 9, 9)
+            painter.setClipPath(path)
+            
+            x = (self._bg_label.width() - scaled.width()) // 2
+            y = (self._bg_label.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+            
+            # Subtle vignetting to ensure text is always readable regardless of image
+            painter.setOpacity(0.2)
+            painter.setBrush(Qt.GlobalColor.black)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(rounded.rect())
+            
+            painter.end()
+            self._bg_label.setPixmap(rounded)
         except Exception: pass
 
     def set_format(self, fmt: str):
@@ -660,7 +852,7 @@ class SniffPanel(QWidget):
             self._stack.setCurrentIndex(0)
 
     def add_video(self, video: SniffedVideo):
-        # Normalize URL to check for duplicates that differ only by dynamic tokens
+        # Normalize URL to check for duplicates
         from core.sniffer import _dedup_key
         norm_key = _dedup_key(video.url)
         
@@ -668,29 +860,63 @@ class SniffPanel(QWidget):
             return
             
         basename = urlparse(video.url).path.split("/")[-1].lower()
-        if any(basename.endswith(s) for s in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".css", ".js", ".woff2", ".woff", ".ttf")): return
         
+        # 1. Immediate extension filtering (Hard filters)
+        from core.config import Config
+        conf = Config()
+        
+        ignored_exts = []
+        if not conf.sniff_images:
+            ignored_exts.extend([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"])
+        if not conf.sniff_scripts:
+            ignored_exts.extend([".css", ".js"])
+        if not conf.sniff_fonts:
+            ignored_exts.extend([".woff2", ".woff", ".ttf"])
+            
+        if any(basename.endswith(s) for s in ignored_exts):
+            return
+        
+        # 2. Mark as seen but DON'T add to UI yet
         self._seen_urls.add(norm_key)
-        self._videos.append(video)
-        row = _MediaRow(video)
-        row.download_clicked.connect(self.download_requested.emit)
-        row.info_clicked.connect(self._show_detail)
-        self._rows.append(row)
-        card = _MediaCard(video)
-        card.download_clicked.connect(self.download_requested.emit)
-        card.info_clicked.connect(self._show_detail)
-        self._cards.append(card)
-        idx = self._list_layout.count() - 1
-        self._list_layout.insertWidget(idx, row)
-        card_idx = len(self._cards) - 1
-        self._grid_layout.addWidget(card, card_idx // 2, card_idx % 2)
-        self._count_label.setText(f"嗅探到 {len(self._videos)} 个资源")
+        
+        # 3. Start Probe (HEAD request)
         request = QNetworkRequest(QUrl(video.url))
         if video.referer: request.setRawHeader(b"Referer", video.referer.encode())
         elif video.page_url: request.setRawHeader(b"Referer", video.page_url.encode())
         request.setRawHeader(b"User-Agent", b"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+        
         reply = self._nam.head(request)
-        self._probing[reply] = (video, row)
+        # Store just the video object in pending probes
+        self._probing[reply] = (video, None)
+
+    def _real_add_to_ui(self, video: SniffedVideo):
+        """Actually create widgets and insert into layouts once validated."""
+        self._videos.append(video)
+        
+        row = _MediaRow(video)
+        row.download_clicked.connect(self.download_requested.emit)
+        row.info_clicked.connect(self._show_detail)
+        self._rows.append(row)
+        
+        card = _MediaCard(video)
+        card.download_clicked.connect(self.download_requested.emit)
+        card.info_clicked.connect(self._show_detail)
+        self._cards.append(card)
+        
+        idx = self._list_layout.count() - 1
+        self._list_layout.insertWidget(idx, row)
+        
+        card_idx = len(self._cards) - 1
+        self._grid_layout.addWidget(card, card_idx // 2, card_idx % 2)
+        
+        self._count_label.setText(f"嗅探到 {len(self._videos)} 个资源")
+        
+        # If it's an image, we already have format_hint="img", trigger thumbnail download
+        if video.format_hint == "img":
+            request = QNetworkRequest(QUrl(video.url))
+            if video.referer: request.setRawHeader(b"Referer", video.referer.encode())
+            get_reply = self._nam.get(request)
+            get_reply.setProperty("video_url", video.url)
 
     def update_thumbnail(self, video_url: str, pixmap: QPixmap):
         for row in self._rows:
@@ -699,45 +925,51 @@ class SniffPanel(QWidget):
             if card._video.url == video_url: card.set_thumbnail(pixmap); break
 
     def set_page_thumbnail(self, thumb_url: str):
-        """Compatibility API used by BrowserWindow after page load.
-
+        """Update the sniff panel state with the main page's thumbnail.
         Keep this method lightweight: per-video thumbnails are still driven by
         ffmpeg extraction / metadata probing via update_thumbnail().
         """
         self._page_thumbnail_url = thumb_url or ""
 
-    def _show_detail(self, video: SniffedVideo):
-        _VideoDetailDialog.show_for(video, self)
+    def _show_detail(self, video: SniffedVideo, target_widget: QWidget):
+        _VideoDetailDialog.show_for(video, target_widget)
 
     def _on_probe_finished(self, reply: QNetworkReply):
         entry = self._probing.pop(reply, None)
-        if entry is None: reply.deleteLater(); return
-        video, row = entry
+        # If not in _probing, it might be a GET request for a thumbnail
+        if entry is None:
+            if reply.operation() == QNetworkAccessManager.Operation.GetOperation:
+                self._handle_image_download(reply)
+            else:
+                reply.deleteLater()
+            return
+
+        video, _ = entry # Second item is now always None in this phase
         
         from core.config import Config
         config = Config()
         bad_types = [t.strip().lower() for t in config.sniff_filter_types.split(",") if t.strip()]
 
-        # 1. Capture content type from response headers (available even on error sometimes)
+        # 1. Capture content type
         content_type_raw = reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader)
         if content_type_raw:
             video.content_type = content_type_raw.split(";")[0].strip().lower()
 
-        # 2. Filter Logic (Triggered on BOTH Success and Failure)
-        should_remove = False
+        # 2. Filter Logic (SILENT - never made it to UI yet)
+        should_discard = False
         if video.content_type:
             if any(bad in video.content_type for bad in bad_types):
-                should_remove = True
+                should_discard = True
         elif config.filter_empty_type:
-            # If still no content_type after head request, it's truly empty
-            should_remove = True
+            should_discard = True
 
-        if should_remove:
-            self._remove_video_by_url(video.url)
+        if should_discard:
+            from core.sniffer import _dedup_key
+            self._seen_urls.discard(_dedup_key(video.url))
             reply.deleteLater()
             return
 
-        # 3. Handle successful metadata update
+        # 3. Handle successful metadata update and ADD TO UI
         if reply.error() == QNetworkReply.NetworkError.NoError:
             size = reply.header(QNetworkRequest.KnownHeaders.ContentLengthHeader)
             content_range = reply.rawHeader(b"Content-Range").data().decode()
@@ -747,13 +979,25 @@ class SniffPanel(QWidget):
             if size is not None and int(size) > 0: video.content_length = int(size)
             
             if video.content_type:
-                fmt = _CONTENT_TYPE_FORMAT.get(video.content_type, "media")
+                fmt = _CONTENT_TYPE_FORMAT.get(video.content_type, video.format_hint)
                 video.format_hint = fmt
             
-            row.set_format(video.format_hint)
-            for card in self._cards:
-                if card._video is video: card.set_format(video.format_hint); break
+            # Validation complete, SHOW in list
+            self._real_add_to_ui(video)
         
+        reply.deleteLater()
+
+    def _handle_image_download(self, reply: QNetworkReply):
+        """Process the downloaded image data and update the UI thumbnail."""
+        url = reply.property("video_url")
+        if not url or reply.error() != QNetworkReply.NetworkError.NoError:
+            reply.deleteLater()
+            return
+
+        data = reply.readAll()
+        pixmap = QPixmap()
+        if pixmap.loadFromData(data):
+            self.update_thumbnail(url, pixmap)
         reply.deleteLater()
 
     def _remove_video_by_url(self, url: str):

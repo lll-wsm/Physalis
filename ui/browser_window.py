@@ -36,7 +36,7 @@ class _PopupWebPage(QWebEnginePage):
         self._parent_browser = parent_browser
 
     def createWindow(self, window_type):
-        print(f"[POPUP] createWindow called, type={window_type}")
+        # print(f"[POPUP] createWindow called, type={window_type}")
         from PyQt6.QtWidgets import QDialog, QVBoxLayout
         dialog = QDialog(self._parent_browser)
         dialog.setWindowTitle("登录")
@@ -50,7 +50,7 @@ class _PopupWebPage(QWebEnginePage):
 
         # Auto-close only when popup likely finished OAuth (not during /i/flow/ wizard).
         def on_popup_url_changed(url):
-            print(f"[POPUP] popup URL: {url.toString()}")
+            # print(f"[POPUP] popup URL: {url.toString()}")
             if _x_popup_landing_finishes_oauth(url):
                 dialog.accept()
                 self._parent_browser._view.reload()
@@ -373,15 +373,16 @@ class BrowserWindow(QMainWindow):
 
     def _on_js_console(self, level, message, line, source_id):
         """Log JS console messages to Python stdout for debugging."""
-        level_map = {0: "INFO", 1: "WARN", 2: "ERROR", 3: "DEBUG"}
-        tag = level_map.get(level, str(level))
-        src = source_id.split("/")[-1] if source_id else ""
-        print(f"[JS:{tag}] {message}  ({src}:{line})")
+        # level_map = {0: "INFO", 1: "WARN", 2: "ERROR", 3: "DEBUG"}
+        # tag = level_map.get(level, str(level))
+        # src = source_id.split("/")[-1] if source_id else ""
+        # print(f"[JS:{tag}] {message}  ({src}:{line})")
+        pass
 
     def _on_url_changed(self, url: QUrl):
         url_str = url.toString()
         self._url_bar.setText(url_str)
-        print(f"[NAV] {url_str}")
+        # print(f"[NAV] {url_str}")
         # Clear sniffer's dedup so new page requests aren't filtered out (SPA fix)
         if self._sniffer is not None:
             self._sniffer.clear()
@@ -535,15 +536,15 @@ class BrowserWindow(QMainWindow):
         self._view.reload()
 
     def _on_cookie_added(self, cookie: QNetworkCookie):
-        domain = cookie.domain() or ""
-        name = bytes(cookie.name()).decode("utf-8", errors="replace")
-        print(f"[COOKIE+] {domain} {name}")
+        # domain = cookie.domain() or ""
+        # name = bytes(cookie.name()).decode("utf-8", errors="replace")
+        # print(f"[COOKIE+] {domain} {name}")
         self._cookie_manager.add_cookie(cookie)
 
     def _on_cookie_removed(self, cookie: QNetworkCookie):
-        domain = cookie.domain() or ""
-        name = bytes(cookie.name()).decode("utf-8", errors="replace")
-        print(f"[COOKIE-] {domain} {name}")
+        # domain = cookie.domain() or ""
+        # name = bytes(cookie.name()).decode("utf-8", errors="replace")
+        # print(f"[COOKIE-] {domain} {name}")
         self._cookie_manager.remove_cookie(cookie)
 
     def _build_task_for_video(self, video: SniffedVideo) -> DownloadTask:

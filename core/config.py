@@ -36,6 +36,9 @@ class Config:
             "language": "zh_CN",
             "sniff_filter_types": "application/json,text/html,text/javascript,text/css,application/x-protobuf",
             "filter_empty_type": False,
+            "sniff_images": False,
+            "sniff_scripts": False,
+            "sniff_fonts": False,
         }
         if self._path.exists():
             with open(self._path, "r", encoding="utf-8") as f:
@@ -100,4 +103,31 @@ class Config:
     @filter_empty_type.setter
     def filter_empty_type(self, value: bool):
         self._data["filter_empty_type"] = value
+        self._save()
+
+    @property
+    def sniff_images(self) -> bool:
+        return self._data.get("sniff_images", False)
+
+    @sniff_images.setter
+    def sniff_images(self, value: bool):
+        self._data["sniff_images"] = value
+        self._save()
+
+    @property
+    def sniff_scripts(self) -> bool:
+        return self._data.get("sniff_scripts", False)
+
+    @sniff_scripts.setter
+    def sniff_scripts(self, value: bool):
+        self._data["sniff_scripts"] = value
+        self._save()
+
+    @property
+    def sniff_fonts(self) -> bool:
+        return self._data.get("sniff_fonts", False)
+
+    @sniff_fonts.setter
+    def sniff_fonts(self, value: bool):
+        self._data["sniff_fonts"] = value
         self._save()

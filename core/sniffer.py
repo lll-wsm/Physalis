@@ -41,28 +41,60 @@ _SUFFIX_FORMAT = {
     ".m4s": "m4s",
     ".webm": "webm",
     ".mpd": "dash",
+    ".png": "img",
+    ".jpg": "img",
+    ".jpeg": "img",
+    ".gif": "img",
+    ".webp": "img",
+    ".svg": "img",
+    ".ico": "img",
+    ".bmp": "img",
+    ".js": "js",
+    ".css": "css",
+    ".woff2": "font",
+    ".woff": "font",
+    ".ttf": "font",
 }
 
 # Segment-based suffixes: dedup by directory, not individual segments
 _SEGMENT_SUFFIXES = (".ts", ".m4s")
 
 
-def _classify_url(url: str) -> str | None:
+def _classify_url(url: str, conf=None) -> str | None:
     """Return format_hint if URL looks like media, else None."""
     parsed = urlparse(url)
     path_lower = parsed.path.lower()
 
+    # 1. Image Check
     for suffix in _IMAGE_SUFFIXES:
         if path_lower.endswith(suffix):
+            if conf and conf.sniff_images:
+                return _SUFFIX_FORMAT.get(suffix, "img")
             return None
 
-    for suffix in _NON_MEDIA_SUFFIXES:
+    # 2. Scripts & Styles Check
+    if path_lower.endswith(".js") or path_lower.endswith(".css"):
+        if conf and conf.sniff_scripts:
+            return _SUFFIX_FORMAT.get(".js" if path_lower.endswith(".js") else ".css")
+        return None
+
+    # 3. Fonts Check
+    for suffix in (".woff2", ".woff", ".ttf"):
+        if path_lower.endswith(suffix):
+            if conf and conf.sniff_fonts:
+                return "font"
+            return None
+
+    # 4. Standard Non-Media rejection (others)
+    others = (".json", ".xml", ".php", ".aspx", ".jsp", ".html", ".htm")
+    for suffix in others:
         if path_lower.endswith(suffix):
             return None
 
+    # 5. Media Check
     for suffix in _MEDIA_SUFFIXES:
         if path_lower.endswith(suffix):
-            return _SUFFIX_FORMAT[suffix]
+            return _SUFFIX_FORMAT.get(suffix, "media")
 
     # .ts segments: only match if path looks like HLS (inside a stream directory)
     for seg_suffix in _SEGMENT_SUFFIXES:
@@ -124,6 +156,8 @@ class NetworkSniffer(QWebEngineUrlRequestInterceptor):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._seen: set[str] = set()
+        from core.config import Config
+        self._config = Config()
 
     def interceptRequest(self, info):
         # This runs on the Chromium IO thread; any uncaught exception aborts
@@ -134,23 +168,30 @@ class NetworkSniffer(QWebEngineUrlRequestInterceptor):
             pass
 
     def _intercept_request(self, info):
-        # Skip common non-media resource types
+        # Skip common non-media resource types, unless explicitly allowed in config
         rt = info.resourceType()
+        
+        should_skip = False
         if rt in (
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypeMainFrame,
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypeSubFrame,
-            QWebEngineUrlRequestInfo.ResourceType.ResourceTypeStylesheet,
-            QWebEngineUrlRequestInfo.ResourceType.ResourceTypeScript,
-            QWebEngineUrlRequestInfo.ResourceType.ResourceTypeImage,
-            QWebEngineUrlRequestInfo.ResourceType.ResourceTypeFontResource,
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypeFavicon,
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypePing,
             QWebEngineUrlRequestInfo.ResourceType.ResourceTypeCspReport,
         ):
+            should_skip = True
+        elif rt == QWebEngineUrlRequestInfo.ResourceType.ResourceTypeImage and not self._config.sniff_images:
+            should_skip = True
+        elif rt in (QWebEngineUrlRequestInfo.ResourceType.ResourceTypeScript, QWebEngineUrlRequestInfo.ResourceType.ResourceTypeStylesheet) and not self._config.sniff_scripts:
+            should_skip = True
+        elif rt == QWebEngineUrlRequestInfo.ResourceType.ResourceTypeFontResource and not self._config.sniff_fonts:
+            should_skip = True
+            
+        if should_skip:
             return
 
         url = info.requestUrl().toString()
-        fmt = _classify_url(url)
+        fmt = _classify_url(url, self._config)
 
         if fmt is None:
             return

@@ -129,6 +129,18 @@ class SettingsDialog(QDialog):
         self._filter_empty_cb.setToolTip("如果服务器没有返回 Content-Type，则直接过滤掉")
         layout.addRow("", self._filter_empty_cb)
 
+        self._sniff_images_cb = QCheckBox("嗅探图片资源 (.png, .jpg, .webp...)")
+        self._sniff_images_cb.setChecked(self._config.sniff_images)
+        layout.addRow("", self._sniff_images_cb)
+
+        self._sniff_scripts_cb = QCheckBox("嗅探脚本与样式 (.js, .css)")
+        self._sniff_scripts_cb.setChecked(self._config.sniff_scripts)
+        layout.addRow("", self._sniff_scripts_cb)
+
+        self._sniff_fonts_cb = QCheckBox("嗅探字体文件 (.woff2, .ttf...)")
+        self._sniff_fonts_cb.setChecked(self._config.sniff_fonts)
+        layout.addRow("", self._sniff_fonts_cb)
+
         # Bottom padding
         layout.addRow(QLabel(""))
 
@@ -151,4 +163,7 @@ class SettingsDialog(QDialog):
         self._config.preferred_quality = self._quality_combo.currentText()
         self._config.sniff_filter_types = self._filter_input.text().strip()
         self._config.filter_empty_type = self._filter_empty_cb.isChecked()
+        self._config.sniff_images = self._sniff_images_cb.isChecked()
+        self._config.sniff_scripts = self._sniff_scripts_cb.isChecked()
+        self._config.sniff_fonts = self._sniff_fonts_cb.isChecked()
         self.accept()

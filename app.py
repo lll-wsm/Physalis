@@ -129,18 +129,25 @@ MAIN_STYLE_SHEET = """
         border-radius: 6px;
     }
     QMenu {
-        background-color: #1a1a1e;
+        background-color: #241f38;
         color: #e8e8ed;
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid rgba(139,92,246,0.3);
         border-radius: 10px;
         padding: 6px;
     }
     QMenu::item {
-        padding: 6px 18px;
+        padding: 8px 24px;
         border-radius: 6px;
+        margin: 2px 4px;
     }
     QMenu::item:selected {
-        background-color: rgba(139,92,246,0.2);
+        background-color: rgba(139,92,246,0.25);
+        color: #ffffff;
+    }
+    QMenu::separator {
+        height: 1px;
+        background: rgba(255,255,255,0.06);
+        margin: 4px 10px;
     }
 
     /* === Dialog === */
@@ -184,6 +191,15 @@ MAIN_STYLE_SHEET = """
     }
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
         height: 0px;
+    }
+
+    /* === ToolTip === */
+    QToolTip {
+        background-color: #0f0d1a; /* Darker, solid color */
+        color: #ffffff;
+        border: 1px solid #8b5cf6; /* Solid purple border */
+        border-radius: 6px;
+        padding: 8px;
     }
 """
 
