@@ -1,11 +1,64 @@
 import os
 import tempfile
+from pathlib import Path
 from urllib.parse import urlparse
 
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtNetwork import QNetworkCookie, QNetworkReply
 from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
+
+
+def _x_popup_landing_finishes_oauth(url: QUrl) -> bool:
+    """Whether an X/Twitter popup URL looks like OAuth/post-auth landing (safe to close).
+
+    Closing on every x.com navigation breaks flows where the popup still runs inside
+    /i/flow/ (login wizard, SSO). Reloading the opener then resets username/password UI.
+    """
+    host = url.host().lower()
+    if host not in ("x.com", "twitter.com"):
+        return False
+    path = url.path().lower()
+    if "/i/flow/" in path:
+        return False
+    if path.rstrip("/").endswith("/login"):
+        return False
+    return True
+
+
+class _PopupWebPage(QWebEnginePage):
+    """QWebEnginePage subclass that opens popup windows (OAuth, etc.)
+    in a separate dialog so the opener page stays alive and can receive
+    postMessage / callback tokens from the popup."""
+
+    def __init__(self, profile, parent_browser, parent=None):
+        super().__init__(profile, parent)
+        self._parent_browser = parent_browser
+
+    def createWindow(self, window_type):
+        print(f"[POPUP] createWindow called, type={window_type}")
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout
+        dialog = QDialog(self._parent_browser)
+        dialog.setWindowTitle("登录")
+        dialog.setMinimumSize(480, 640)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        popup_page = _PopupWebPage(self.profile(), self._parent_browser, dialog)
+        popup_view = QWebEngineView(dialog)
+        popup_view.setPage(popup_page)
+
+        # Auto-close only when popup likely finished OAuth (not during /i/flow/ wizard).
+        def on_popup_url_changed(url):
+            print(f"[POPUP] popup URL: {url.toString()}")
+            if _x_popup_landing_finishes_oauth(url):
+                dialog.accept()
+                self._parent_browser._view.reload()
+
+        popup_view.urlChanged.connect(on_popup_url_changed)
+        layout.addWidget(popup_view)
+        dialog.show()
+        return popup_page
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -18,6 +71,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.config import Config
 from core.cookie_manager import CookieManager
 from core.sniffer import NetworkSniffer, SniffedVideo
 from core.task import DownloadTask
@@ -190,10 +244,6 @@ class BrowserWindow(QMainWindow):
         nav.addWidget(self._url_bar, 1)
 
         # Tools group
-        self._login_indicator = QLabel("○ 未登录")
-        self._login_indicator.setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px; margin-left: 4px;")
-        nav.addWidget(self._login_indicator)
-
         self._cookie_btn = QPushButton()
         self._cookie_btn.setIcon(_make_cookie_icon())
         self._cookie_btn.setFixedSize(32, 28)
@@ -236,40 +286,32 @@ class BrowserWindow(QMainWindow):
 
         # --- Web view ---
         self._profile = QWebEngineProfile(self)
-        # Use a stable Windows User-Agent which often has better compatibility with Douyin detection
-        self._profile.setHttpUserAgent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-        )
+        _web_root = Path(Config()._path).parent / "webengine"
+        _web_root.mkdir(parents=True, exist_ok=True)
+        self._profile.setPersistentStoragePath(str(_web_root / "persistent"))
+        self._profile.setCachePath(str(_web_root / "cache"))
 
-        # Inject a compatibility script to "de-bot" the browser and spoof features
+        # Minimal injection: real Chrome reports webdriver === false; undefined can trip checks.
+        # FedCM: QtWebEngine throws sync TypeError on identity credential requests; reject so GSI falls back.
+        # Do NOT wrap fetch/XHR (x.com login can call XHR.send multiple times; extra load listeners break state).
         compatibility_script = QWebEngineScript()
         compatibility_script.setSourceCode("""
             (function() {
-                // 1. Hide webdriver
-                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                
-                // 2. Spoof plugins
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [
-                        { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer' },
-                        { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer' },
-                        { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer' },
-                        { name: 'PDF Viewer', filename: 'internal-pdf-viewer' },
-                        { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer' }
-                    ]
-                });
+                try {
+                    Object.defineProperty(navigator, 'webdriver', { get: function() { return false; } });
+                } catch (e) {}
 
-                // 3. Spoof languages and platform
-                Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
-                Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-
-                // 4. Fake chrome object (often checked by Douyin)
-                window.chrome = {
-                    runtime: {},
-                    loadTimes: function() {},
-                    csi: function() {},
-                    app: {}
-                };
+                if (navigator.credentials && navigator.credentials.get) {
+                    var _origCredGet = navigator.credentials.get.bind(navigator.credentials);
+                    navigator.credentials.get = function(options) {
+                        if (options && options.identity) {
+                            return Promise.reject(
+                                new DOMException('FedCM not supported', 'NotAllowedError')
+                            );
+                        }
+                        return _origCredGet(options);
+                    };
+                }
             })();
         """)
         compatibility_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
@@ -277,7 +319,10 @@ class BrowserWindow(QMainWindow):
         compatibility_script.setRunsOnSubFrames(True)
         self._profile.scripts().insert(compatibility_script)
 
-        # Enable modern web features for better compatibility with video players
+        # Do not override httpUserAgent with a fake Chrome version: the string must
+        # match the embedded Chromium build (e.g. Client Hints / JS checks on x.com).
+        # Qt's default UA is aligned with the actual engine.
+
         settings = self._profile.settings()
         settings.setAttribute(settings.WebAttribute.LocalStorageEnabled, True)
         settings.setAttribute(settings.WebAttribute.FullScreenSupportEnabled, True)
@@ -298,7 +343,9 @@ class BrowserWindow(QMainWindow):
         self._cookie_store.cookieAdded.connect(self._on_cookie_added)
         self._cookie_store.cookieRemoved.connect(self._on_cookie_removed)
 
-        self._page = QWebEnginePage(self._profile, self)
+        self._page = _PopupWebPage(self._profile, self, self)
+        # Enable console message logging for debugging
+        self._page.javaScriptConsoleMessage = self._on_js_console
         self._page.setBackgroundColor(QColor("#2d2640"))
         self._view = QWebEngineView(self)
         self._view.setPage(self._page)
@@ -324,8 +371,17 @@ class BrowserWindow(QMainWindow):
 
         self._view.load(QUrl("about:blank"))
 
+    def _on_js_console(self, level, message, line, source_id):
+        """Log JS console messages to Python stdout for debugging."""
+        level_map = {0: "INFO", 1: "WARN", 2: "ERROR", 3: "DEBUG"}
+        tag = level_map.get(level, str(level))
+        src = source_id.split("/")[-1] if source_id else ""
+        print(f"[JS:{tag}] {message}  ({src}:{line})")
+
     def _on_url_changed(self, url: QUrl):
-        self._url_bar.setText(url.toString())
+        url_str = url.toString()
+        self._url_bar.setText(url_str)
+        print(f"[NAV] {url_str}")
         # Clear sniffer's dedup so new page requests aren't filtered out (SPA fix)
         if self._sniffer is not None:
             self._sniffer.clear()
@@ -479,12 +535,16 @@ class BrowserWindow(QMainWindow):
         self._view.reload()
 
     def _on_cookie_added(self, cookie: QNetworkCookie):
+        domain = cookie.domain() or ""
+        name = bytes(cookie.name()).decode("utf-8", errors="replace")
+        print(f"[COOKIE+] {domain} {name}")
         self._cookie_manager.add_cookie(cookie)
-        self._update_login_indicator()
 
     def _on_cookie_removed(self, cookie: QNetworkCookie):
+        domain = cookie.domain() or ""
+        name = bytes(cookie.name()).decode("utf-8", errors="replace")
+        print(f"[COOKIE-] {domain} {name}")
         self._cookie_manager.remove_cookie(cookie)
-        self._update_login_indicator()
 
     def _build_task_for_video(self, video: SniffedVideo) -> DownloadTask:
         domain = _domain_from_url(video.page_url or video.url)
@@ -557,7 +617,6 @@ class BrowserWindow(QMainWindow):
     def reset(self):
         """Clear cookies, sniffer state and sniff panel, then load about:blank."""
         self._cookie_manager.clear_all()
-        self._update_login_indicator()
         if self._sniffer is not None:
             self._sniffer.clear()
         self._sniff_panel.clear()
@@ -567,7 +626,6 @@ class BrowserWindow(QMainWindow):
         super().showEvent(event)
         self._cookie_manager.load()
         self._restore_cookies_to_store()
-        self._update_login_indicator()
 
     def closeEvent(self, event):
         """Window close only hides it to avoid expensive WebEngineProfile recreation."""
@@ -610,18 +668,9 @@ class BrowserWindow(QMainWindow):
         except (RuntimeError, AttributeError):
             pass
 
-    def _update_login_indicator(self):
-        if self._cookie_manager.has_any():
-            self._login_indicator.setText("● 已登录")
-            self._login_indicator.setStyleSheet("color: #4ade80; font-size: 11px; background: transparent; padding: 0 4px;")
-        else:
-            self._login_indicator.setText("○ 未登录")
-            self._login_indicator.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px; background: transparent; padding: 0 4px;")
-
     def _show_cookie_manager(self):
         dialog = CookieManagerDialog(self._cookie_manager, self)
         dialog.exec()
-        self._update_login_indicator()
 
     def _show_title_rules(self):
         """Open the title rule configuration dialog for the current page."""

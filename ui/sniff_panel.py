@@ -560,6 +560,7 @@ class SniffPanel(QWidget):
         self._nam = QNetworkAccessManager(self)
         self._nam.finished.connect(self._on_probe_finished)
         self._view_mode = self.VIEW_LIST
+        self._page_thumbnail_url = ""
         self._setup_ui()
 
     def _setup_ui(self):
@@ -696,6 +697,14 @@ class SniffPanel(QWidget):
             if row._video.url == video_url: row.set_thumbnail(pixmap); break
         for card in self._cards:
             if card._video.url == video_url: card.set_thumbnail(pixmap); break
+
+    def set_page_thumbnail(self, thumb_url: str):
+        """Compatibility API used by BrowserWindow after page load.
+
+        Keep this method lightweight: per-video thumbnails are still driven by
+        ffmpeg extraction / metadata probing via update_thumbnail().
+        """
+        self._page_thumbnail_url = thumb_url or ""
 
     def _show_detail(self, video: SniffedVideo):
         _VideoDetailDialog.show_for(video, self)
