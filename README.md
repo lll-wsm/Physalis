@@ -2,6 +2,8 @@
 
 Cross-platform video downloader with embedded browser for URL sniffing.
 
+![ScreenShot1](ScreenShot_2026-05-07_160749_894.png)
+![ScreenShot2](ScreenShot_2026-05-07_160800_917.png)
 ## 简体中文
 
 跨平台视频下载器，内置浏览器支持视频 URL 嗅探功能。
