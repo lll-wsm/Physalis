@@ -133,21 +133,22 @@ MAIN_STYLE_SHEET = """
         color: #e8e8ed;
         border: 1px solid rgba(139,92,246,0.3);
         border-radius: 10px;
-        padding: 6px;
+        padding: 4px;
     }
     QMenu::item {
-        padding: 8px 24px;
-        border-radius: 6px;
-        margin: 2px 4px;
+        padding: 4px 12px 4px 10px; /* Reduced padding, significantly less on the left */
+        border-radius: 4px;
+        margin: 1px 2px;
+        font-size: 12px; /* More compact font size for macOS style */
     }
     QMenu::item:selected {
-        background-color: rgba(139,92,246,0.25);
+        background-color: #8b5cf6; /* Solid purple for better contrast in compact mode */
         color: #ffffff;
     }
     QMenu::separator {
         height: 1px;
-        background: rgba(255,255,255,0.06);
-        margin: 4px 10px;
+        background: rgba(255,255,255,0.08);
+        margin: 4px 8px;
     }
 
     /* === Dialog === */
@@ -268,8 +269,26 @@ BROWSER_STYLE_SHEET = """
 
 def create_app() -> QApplication:
     import os
+    import subprocess
     from pathlib import Path
     
+    # --- macOS H.264 / Homebrew Qt Fix ---
+    # This was intended to enable H.264 support by using system Qt, but it causes
+    # symbol mismatches with PyQt6 6.11.0 on macOS.
+    # if sys.platform == "darwin" and not getattr(sys, 'frozen', False):
+    #     try:
+    #         # Get Homebrew Qt prefix
+    #         brew_qt_path = subprocess.check_output(["brew", "--prefix", "qt"], text=True).strip()
+    #         qt_root = Path(brew_qt_path)
+    #
+    #         if qt_root.exists():
+    #             # Force Qt to look for plugins in Homebrew path first
+    #             os.environ["QT_PLUGIN_PATH"] = str(qt_root / "share/qt/plugins")
+    #             # Add Homebrew lib to library search path (might be blocked by SIP but worth a try)
+    #             os.environ["DYLD_FRAMEWORK_PATH"] = str(qt_root / "lib") + ":" + os.environ.get("DYLD_FRAMEWORK_PATH", "")
+    #             # print(f"[INFO] Using Homebrew Qt at {qt_root} for H.264 support")
+    #     except Exception:
+    #         pass # Homebrew or Qt not found, fallback to bundled version
     # Fix PATH for macOS bundled app (ensure ffmpeg/yt-dlp are found)
     if sys.platform == "darwin":
         extra_paths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]

@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
-    QMessageBox,
     QDialog,
     QPushButton,
     QStatusBar,
@@ -204,10 +203,6 @@ def _make_settings_icon() -> QIcon:
 
 
 _URL_RE = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
-
-
-def _is_valid_url(text: str) -> bool:
-    return bool(_URL_RE.match(text.strip()))
 
 
 def _make_folder_icon() -> QIcon:
@@ -446,11 +441,10 @@ class MainWindow(QMainWindow):
         self._downloader.probe_finished.connect(self._on_probe_finished)
         self._downloader.probe_failed.connect(self._on_probe_failed)
         
-        self._download_list.cancel_requested.connect(self._downloader.cancel_task)
+        self._download_list.cancel_requested.connect(self._on_remove_task)
         self._download_list.retry_requested.connect(self._on_retry_task)
         self._download_list.remove_requested.connect(self._on_remove_task)
-        self._download_list.pause_requested.connect(self._downloader.pause_task)
-        self._download_list.resume_requested.connect(self._downloader.resume_task)
+
 
     def _on_task_progress(self, task):
         self._download_list.update_task(task)
@@ -497,9 +491,26 @@ class MainWindow(QMainWindow):
         self._extract_task_thumbnail(task)
 
     def _on_sniffed_download(self, task):
+        # 1. Check for name collisions in both list and disk
         existing_titles = [t.title for t in self._downloader.tasks]
-        if task.title in existing_titles:
-            task.title = f"{task.title}_{datetime.now().strftime('%H%M%S')}"
+        base_title = task.title
+        counter = 1
+        
+        # Check list and disk
+        while True:
+            # Check list
+            in_list = task.title in existing_titles
+            # Check disk (potential final path)
+            # Note: Extension is unknown yet, so we check if any file starts with this name in download dir
+            download_dir = self._config.download_dir
+            in_disk = any(f.stem == task.title for f in download_dir.glob("*"))
+            
+            if not in_list and not in_disk:
+                break
+                
+            task.title = f"{base_title}_{counter}"
+            counter += 1
+            
         self._download_list.add_task(task)
         self._downloader.add_task(task)
         self._center_logo.setVisible(False)

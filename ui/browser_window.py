@@ -319,9 +319,10 @@ class BrowserWindow(QMainWindow):
         compatibility_script.setRunsOnSubFrames(True)
         self._profile.scripts().insert(compatibility_script)
 
-        # Do not override httpUserAgent with a fake Chrome version: the string must
-        # match the embedded Chromium build (e.g. Client Hints / JS checks on x.com).
-        # Qt's default UA is aligned with the actual engine.
+        # Use a Chromebook (ChromeOS) User-Agent to trick sites (Bilibili/YouTube/X) 
+        # into serving VP9 or AV1 streams instead of H.264, allowing video playback 
+        # without proprietary codecs.
+        self._profile.setHttpUserAgent("Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
 
         settings = self._profile.settings()
         settings.setAttribute(settings.WebAttribute.LocalStorageEnabled, True)

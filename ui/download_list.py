@@ -64,8 +64,6 @@ class DownloadItemWidget(QWidget):
     cancel_clicked = pyqtSignal(str)
     retry_clicked = pyqtSignal(str)
     remove_clicked = pyqtSignal(str)
-    pause_clicked = pyqtSignal(str)
-    resume_clicked = pyqtSignal(str)
 
     def __init__(self, task: DownloadTask, parent=None):
         super().__init__(parent)
@@ -191,8 +189,6 @@ class DownloadItemWidget(QWidget):
         if s == TaskStatus.COMPLETED: self.remove_clicked.emit(self._task_id)
         elif s == TaskStatus.FAILED: self.retry_clicked.emit(self._task_id)
         elif s == TaskStatus.CANCELLED: self.remove_clicked.emit(self._task_id)
-        elif s == TaskStatus.DOWNLOADING: self.pause_clicked.emit(self._task_id)
-        elif s == TaskStatus.PAUSED: self.resume_clicked.emit(self._task_id)
         else: self.cancel_clicked.emit(self._task_id)
 
     def resizeEvent(self, event):
@@ -239,13 +235,7 @@ class DownloadItemWidget(QWidget):
             self._size_lbl.setText(task.size_downloaded or task.size_total or "--")
             self._speed_lbl.setText(task.speed or "")
             self._speed_lbl.show()
-            self._action_btn.setText("暂停")
-            self._action_btn.show()
-        elif task.status == TaskStatus.PAUSED:
-            self._pct_lbl.setText(f"{int(task.progress)}%")
-            self._size_lbl.setText(task.size_downloaded or "--")
-            self._speed_lbl.hide()
-            self._action_btn.setText("继续")
+            self._action_btn.setText("取消")
             self._action_btn.show()
         elif task.status == TaskStatus.MERGING:
             self._pct_lbl.setText("合并中")
@@ -276,8 +266,6 @@ class DownloadListWidget(QWidget):
     cancel_requested = pyqtSignal(str)
     retry_requested = pyqtSignal(str)
     remove_requested = pyqtSignal(str)
-    pause_requested = pyqtSignal(str)
-    resume_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -326,8 +314,6 @@ class DownloadListWidget(QWidget):
         item_widget.cancel_clicked.connect(self.cancel_requested.emit)
         item_widget.retry_clicked.connect(self.retry_requested.emit)
         item_widget.remove_clicked.connect(self.remove_requested.emit)
-        item_widget.pause_clicked.connect(self.pause_requested.emit)
-        item_widget.resume_clicked.connect(self.resume_requested.emit)
         self._item_widgets[task.id] = item_widget
         self._list_layout.insertWidget(self._list_layout.count() - 1, item_widget)
         if task.thumbnail: self._load_thumbnail(task.id, task.thumbnail)
