@@ -6,7 +6,23 @@ from urllib.parse import urlparse
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtNetwork import QNetworkCookie, QNetworkReply
-from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
+from PyQt6.QtWebEngineCore import (
+    QWebEngineProfile,
+    QWebEnginePage,
+    QWebEngineScript,
+    qWebEngineChromiumVersion,
+)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPushButton,
+    QStatusBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 def _x_popup_landing_finishes_oauth(url: QUrl) -> bool:
@@ -59,17 +75,12 @@ class _PopupWebPage(QWebEnginePage):
         layout.addWidget(popup_view)
         dialog.show()
         return popup_page
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QPushButton,
-    QStatusBar,
-    QVBoxLayout,
-    QWidget,
-)
+
+    def acceptNavigationRequest(self, url, navigation_type, is_main_frame):
+        if is_main_frame:
+            self._parent_browser._apply_user_agent_for_url(url)
+        return super().acceptNavigationRequest(url, navigation_type, is_main_frame)
+
 
 from core.config import Config
 from core.cookie_manager import CookieManager
@@ -87,6 +98,9 @@ from ui.sniff_panel import (
 )
 from ui.title_rule_dialog import TitleRuleDialog
 from app import BROWSER_STYLE_SHEET
+
+
+_OPEN_CODEC_UA_DOMAINS = {"douyin.com"}
 
 
 def _create_hq_pixmap(size: int) -> QPixmap:
@@ -152,6 +166,31 @@ def _domain_from_url(url: str) -> str:
         return ".".join(parts[-2:]) if len(parts) >= 2 else host
     except Exception:
         return ""
+
+
+def _desktop_chrome_user_agent() -> str:
+    """Return a desktop Chrome UA that matches the bundled QtWebEngine Chromium."""
+    chromium_version = qWebEngineChromiumVersion()
+    return (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chromium_version} Safari/537.36"
+    )
+
+
+def _chromeos_chrome_user_agent() -> str:
+    """Ask video sites for open-codec streams that QtWebEngine can decode."""
+    chromium_version = qWebEngineChromiumVersion()
+    return (
+        "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chromium_version} Safari/537.36"
+    )
+
+
+def _user_agent_for_url(url: str) -> str:
+    domain = _domain_from_url(url)
+    if domain in _OPEN_CODEC_UA_DOMAINS:
+        return _chromeos_chrome_user_agent()
+    return _desktop_chrome_user_agent()
 
 
 def _write_netscape_cookies(cookies: list[QNetworkCookie], f):
@@ -290,6 +329,10 @@ class BrowserWindow(QMainWindow):
         _web_root.mkdir(parents=True, exist_ok=True)
         self._profile.setPersistentStoragePath(str(_web_root / "persistent"))
         self._profile.setCachePath(str(_web_root / "cache"))
+        self._profile.setPersistentCookiesPolicy(
+            QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
+        )
+        self._profile.setHttpAcceptLanguage("zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7")
 
         # Minimal injection: real Chrome reports webdriver === false; undefined can trip checks.
         # FedCM: QtWebEngine throws sync TypeError on identity credential requests; reject so GSI falls back.
@@ -319,11 +362,10 @@ class BrowserWindow(QMainWindow):
         compatibility_script.setRunsOnSubFrames(True)
         self._profile.scripts().insert(compatibility_script)
 
-        # Use a Chromebook (ChromeOS) User-Agent to trick sites (Bilibili/YouTube/X) 
-        # into serving VP9 or AV1 streams instead of H.264, allowing video playback 
-        # without proprietary codecs.
-        self._profile.setHttpUserAgent("Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-
+        # Keep the UA aligned with QtWebEngine's actual Chromium version. Security
+        # challenges compare UA, JS capabilities and cookies; stale/fake versions
+        # can loop indefinitely on sites such as macosicons.com.
+        self._profile.setHttpUserAgent(_desktop_chrome_user_agent())
         settings = self._profile.settings()
         settings.setAttribute(settings.WebAttribute.LocalStorageEnabled, True)
         settings.setAttribute(settings.WebAttribute.FullScreenSupportEnabled, True)
@@ -525,6 +567,7 @@ class BrowserWindow(QMainWindow):
                 )
                 return
             text = "https://" + text
+        self._apply_user_agent_for_url(QUrl(text))
         self._view.load(QUrl(text))
 
     def _go_back(self):
@@ -693,6 +736,9 @@ class BrowserWindow(QMainWindow):
             "隐藏嗅探面板" if hidden else "显示嗅探面板"
         )
 
+    def _apply_user_agent_for_url(self, url: QUrl):
+        self._profile.setHttpUserAgent(_user_agent_for_url(url.toString()))
+
     def _restore_cookies_to_store(self):
         """Push persisted cookies into QtWebEngine's cookie store so login persists."""
         if not self._cookie_manager.has_any():
@@ -709,4 +755,5 @@ class BrowserWindow(QMainWindow):
     def load_url(self, url: str):
         if not url.startswith(("http://", "https://", "about:", "file:")):
             url = "https://" + url
+        self._apply_user_agent_for_url(QUrl(url))
         self._view.load(QUrl(url))
