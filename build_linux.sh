@@ -59,6 +59,7 @@ pyinstaller --name "Physalis" \
             --add-data "core:core" \
             --add-data "ui:ui" \
             --add-data "utils:utils" \
+            --add-data "icon.iconset:icon.iconset" \
             --icon "icon.iconset/icon_256x256.png" \
             main.py
 
